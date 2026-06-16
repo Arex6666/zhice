@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "web-content-fetcher": {
+      "command": "python",
+      "args": ["D:/微服务架构2/guide-baseline/web_content_mcp.py"]
+    }
+  }
+}

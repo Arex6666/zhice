@@ -1,0 +1,55 @@
+name: zhiyue
+
+services:
+  storage-service:
+    build: ../services/storage-service
+    image: zhiyue/storage-service:latest
+    environment:
+      DB_PATH: /data/zhiyue.db
+    volumes:
+      - zhiyue-data:/data
+    networks: [zhiyue-net]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mcp-tool-service:
+    build: ../services/mcp-tool-service
+    image: zhiyue/mcp-tool-service:latest
+    environment:
+      MCP_TRANSPORT: sse
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8002"
+      STORAGE_URL: http://storage-service:8003
+    depends_on:
+      storage-service:
+        condition: service_healthy
+    networks: [zhiyue-net]
+
+  agent-service:
+    build: ../services/agent-service
+    image: zhiyue/agent-service:latest
+    env_file: [.env]
+    environment:
+      MCP_SSE_URL: http://mcp-tool-service:8002/sse
+    depends_on: [mcp-tool-service]
+    networks: [zhiyue-net]
+
+  api-gateway:
+    build: ../services/api-gateway
+    image: zhiyue/api-gateway:latest
+    environment:
+      AGENT_URL: http://agent-service:8001
+      STORAGE_URL: http://storage-service:8003
+    ports:
+      - "8080:8080"
+    depends_on: [agent-service]
+    networks: [zhiyue-net]
+
+networks:
+  zhiyue-net: {}
+
+volumes:
+  zhiyue-data: {}
