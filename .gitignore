@@ -1,0 +1,34 @@
+# Secrets
+.env
+deploy/.env
+**/.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Data / runtime
+*.db
+data/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Build artifacts
+*.tar
+dist/
+build/
+
+# Extraction scratch files
+_req_extracted.txt
+_template_antiword.txt
+_mcp_guide.txt
+_antiword_err.txt
