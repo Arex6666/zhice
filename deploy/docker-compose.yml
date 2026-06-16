@@ -1,5 +1,11 @@
 name: zhiyue
 
+x-health: &py-health
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 5s
+
 services:
   storage-service:
     build: ../services/storage-service
@@ -9,11 +15,10 @@ services:
     volumes:
       - zhiyue-data:/data
     networks: [zhiyue-net]
+    restart: unless-stopped
     healthcheck:
+      <<: *py-health
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8003/health')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   mcp-tool-service:
     build: ../services/mcp-tool-service
@@ -29,6 +34,10 @@ services:
       storage-service:
         condition: service_healthy
     networks: [zhiyue-net]
+    restart: unless-stopped
+    healthcheck:
+      <<: *py-health
+      test: ["CMD", "python", "-c", "import socket;socket.create_connection(('localhost',8002),3).close()"]
 
   agent-service:
     build: ../services/agent-service
@@ -36,8 +45,14 @@ services:
     env_file: [.env]
     environment:
       MCP_SSE_URL: http://mcp-tool-service:8002/sse
-    depends_on: [mcp-tool-service]
+    depends_on:
+      mcp-tool-service:
+        condition: service_healthy
     networks: [zhiyue-net]
+    restart: unless-stopped
+    healthcheck:
+      <<: *py-health
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8001/health')"]
 
   api-gateway:
     build: ../services/api-gateway
@@ -47,8 +62,14 @@ services:
       STORAGE_URL: http://storage-service:8003
     ports:
       - "8080:8080"
-    depends_on: [agent-service]
+    depends_on:
+      agent-service:
+        condition: service_healthy
     networks: [zhiyue-net]
+    restart: unless-stopped
+    healthcheck:
+      <<: *py-health
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8080/health')"]
 
 networks:
   zhiyue-net: {}

@@ -51,13 +51,14 @@ def extract_links_from_html(html, base_url=""):
     return out
 
 
-def crawl_structured_from_html(html, selector):
-    """按 CSS 选择器抽取结构化条目，返回 [{text, href}]。"""
+def crawl_structured_from_html(html, selector, base_url=""):
+    """按 CSS 选择器抽取结构化条目，返回 [{text, href}]；相对链接转为绝对链接。"""
     soup = bs(html, "html.parser")
     out = []
     for el in soup.select(selector):
         link = el.find("a", href=True)
-        out.append(
-            {"text": el.get_text(strip=True), "href": link["href"] if link else None}
-        )
+        href = None
+        if link:
+            href = urljoin(base_url, link["href"]) if base_url else link["href"]
+        out.append({"text": el.get_text(strip=True), "href": href})
     return out

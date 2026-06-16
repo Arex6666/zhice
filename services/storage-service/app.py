@@ -43,6 +43,7 @@ def create(doc: DocIn):
 
 @app.get("/documents")
 def search(q: str = "", limit: int = 5):
+    limit = max(1, min(limit, 100))  # 防御性夹取，避免超大查询
     return db.search_documents(DB_PATH, q, limit)
 
 

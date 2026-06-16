@@ -28,6 +28,15 @@ def metrics():
     return JSONResponse(_metrics)
 
 
+def _safe_json(r):
+    """上游可能在错误时返回 HTML/纯文本；避免 r.json() 抛错导致网关 500。"""
+    try:
+        return r.json()
+    except Exception:
+        return {"error": "upstream non-JSON response",
+                "status": r.status_code, "body": r.text[:500]}
+
+
 @app.post("/api/chat")
 async def chat(req: Request):
     _metrics["requests"] += 1
@@ -35,7 +44,7 @@ async def chat(req: Request):
     body = await req.json()
     async with httpx.AsyncClient(timeout=120) as c:
         r = await c.post(f"{AGENT_URL}/chat", json=body)
-        return JSONResponse(r.json(), status_code=r.status_code)
+        return JSONResponse(_safe_json(r), status_code=r.status_code)
 
 
 @app.get("/api/documents")
@@ -43,7 +52,7 @@ async def documents(q: str = "", limit: int = 10):
     _metrics["requests"] += 1
     async with httpx.AsyncClient(timeout=30) as c:
         r = await c.get(f"{STORAGE_URL}/documents", params={"q": q, "limit": limit})
-        return JSONResponse(r.json(), status_code=r.status_code)
+        return JSONResponse(_safe_json(r), status_code=r.status_code)
 
 
 @app.get("/")

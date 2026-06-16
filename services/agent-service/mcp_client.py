@@ -39,9 +39,13 @@ async def list_tools_openai(session):
 
 
 async def call_tool(session, name, arguments):
-    """调用一个 MCP 工具，把返回内容拼成纯文本（供回填给 LLM）。"""
+    """调用一个 MCP 工具，把返回内容拼成纯文本（供回填给 LLM）。
+
+    若 MCP 返回 isError（工具内部抛出异常），以 [工具调用失败] 前缀标注，
+    让上层智能体能区分成功与失败，而不是把错误当正文。
+    """
     res = await session.call_tool(name, arguments or {})
-    parts = []
-    for c in res.content:
-        parts.append(getattr(c, "text", str(c)))
-    return "\n".join(parts)
+    text = "\n".join(getattr(c, "text", str(c)) for c in res.content)
+    if getattr(res, "isError", False):
+        return f"[工具调用失败] {text}"
+    return text

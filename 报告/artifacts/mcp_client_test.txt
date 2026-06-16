@@ -3,7 +3,7 @@
 [2] list_tools —— 服务器暴露的 MCP 工具：
       - get_web_content: 获取网页内容：抓取给定 URL 的网页，去除脚本/样式后返回纯文本（最多 4000 字）。
       - extract_links: 提取网页中的所有超链接，返回 [{text, href}]，相对链接会被转为绝对链接。
-      - crawl_structured: 按 CSS 选择器抽取结构化条目，返回 [{text, href}]。
+      - crawl_structured: 按 CSS 选择器抽取结构化条目，返回 [{text, href}]（href 已转为绝对链接）。
       - save_document: 把一篇网页内容保存到智能体的记忆库（storage-service），返回文档 id。
       - search_documents: 在记忆库中检索此前抓取过的网页（按关键词模糊匹配标题/正文/URL）。
 [3] call_tool get_web_content(url=https://example.com)

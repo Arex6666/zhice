@@ -296,6 +296,8 @@ def sec2():
         ["测试", "pytest（单元/集成） + 自研冒烟测试脚本"],
         ["其他工具", "VS Code、Cline、MCP Inspector、Git"],
     ])
+    para("以下为实验环境关键版本的自动采集结果（可复现）：", indent=True)
+    code_block(read("报告/artifacts/env.txt"))
 
 
 # ====================================================== 三、实验内容
@@ -363,6 +365,16 @@ def sec4():
     h2("4.4 MCP 封装与测试（对应《指导书》第二~五步）")
     para("第二步——编写爬虫并用 fastmcp 封装为 MCP 服务：mcp = FastMCP(\"...\")，以 @mcp.tool() 装饰"
          "工具函数，mcp.run(transport='stdio')。《指导书》原样单文件版本见附录 F（guide-baseline）。", indent=True)
+    para("说明：guide-baseline/ 目录 100% 保留《指导书》原样实现；生产 mcp-tool-service 在其基础上做了"
+         "如下增强（二者并存，确保既覆盖指导书基线、又体现微服务化扩展）：", indent=True)
+    table(["维度", "指导书基线 (guide-baseline)", "本系统生产实现 (mcp-tool-service)"], [
+        ["服务名", "Web Scraper", "ZhiYue Web Tools"],
+        ["工具数", "1（get_web_content）", "5（爬取/抽取/结构化/存储/检索）"],
+        ["传输方式", "stdio", "stdio + SSE 双传输"],
+        ["正文截断", "1000 字", "4000 字"],
+        ["网络 I/O", "同步 requests", "异步 httpx（不阻塞事件循环）"],
+        ["错误语义", "返回 'Error:' 字符串", "抛异常→MCP isError，客户端可感知失败"],
+    ])
     para("第三步——测试 MCP 服务：可在宿主机执行下述命令启动官方 MCP Inspector，在浏览器中 Connect、"
          "选择 get_web_content 工具、输入 URL 并运行；也可将 Inspector 的 SSE 传输指向运行中的服务 "
          "http://localhost:8002/sse 进行可视化调试：", indent=True)

@@ -1,5 +1,5 @@
 REPOSITORY                TAG       SIZE
-zhiyue/agent-service      latest    333MB
-zhiyue/api-gateway        latest    279MB
-zhiyue/mcp-tool-service   latest    314MB
 zhiyue/storage-service    latest    276MB
+zhiyue/api-gateway        latest    279MB
+zhiyue/agent-service      latest    333MB
+zhiyue/mcp-tool-service   latest    314MB
