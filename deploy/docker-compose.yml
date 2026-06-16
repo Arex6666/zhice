@@ -23,6 +23,8 @@ services:
       MCP_HOST: 0.0.0.0
       MCP_PORT: "8002"
       STORAGE_URL: http://storage-service:8003
+    ports:
+      - "8002:8002"   # 暴露 SSE 端点，便于 MCP Inspector / 集成测试直连
     depends_on:
       storage-service:
         condition: service_healthy
