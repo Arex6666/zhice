@@ -1,0 +1,52 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: 智阅
+      - generic [ref=e6]: ZhiYue
+    - paragraph [ref=e7]: 基于 MCP 协议的智能网页采集与分析智能体。用自然语言下达任务，智能体自动规划并调用爬虫 / 抽取 / 存储 / 检索工具。
+    - generic [ref=e8]:
+      - generic [ref=e9]: 能力 · MCP Tools
+      - generic [ref=e10]:
+        - generic [ref=e11]:
+          - text: 🌐 抓取网页正文
+          - code [ref=e12]: get_web_content
+        - generic [ref=e13]:
+          - text: 🔗 提取页面链接
+          - code [ref=e14]: extract_links
+        - generic [ref=e15]:
+          - text: 📑 结构化爬取
+          - code [ref=e16]: crawl_structured
+        - generic [ref=e17]:
+          - text: 💾 存入记忆库
+          - code [ref=e18]: save_document
+        - generic [ref=e19]:
+          - text: 🔎 检索历史
+          - code [ref=e20]: search_documents
+    - generic [ref=e21]:
+      - generic [ref=e22]: 记忆库 · 最近抓取
+      - generic [ref=e23]:
+        - generic "https://example.com" [ref=e24]: "#2 Example"
+        - generic "https://example.com" [ref=e25]: "#1 Example"
+      - button "↻ 刷新" [ref=e26] [cursor=pointer]
+    - generic [ref=e27]:
+      - generic [ref=e28]: microservices online
+      - text: gateway · agent · mcp-tool · storage
+      - text: Docker · FastAPI · FastMCP · DeepSeek
+  - main [ref=e30]:
+    - generic [ref=e31]:
+      - heading "智能网页采集分析 · 对话台" [level=1] [ref=e32]
+      - generic [ref=e33]: ARCH gateway → agent → mcp-tool(SSE) → storage
+    - generic [ref=e36]:
+      - generic [ref=e37]: 阅
+      - generic [ref=e38]:
+        - generic [ref=e39]: ZhiYue Agent
+        - generic [ref=e40]: 你好，我是「智阅」智能体 👋 我可以抓取网页、提取链接、结构化爬取，并把内容存进记忆库供你检索。试试下面的示例，或直接描述你的需求。
+    - generic [ref=e42]:
+      - generic [ref=e43]:
+        - generic [ref=e44] [cursor=pointer]: 帮我抓取 https://example.com 的内容并总结
+        - generic [ref=e45] [cursor=pointer]: 提取 https://www.python.org 页面上的所有链接
+        - generic [ref=e46] [cursor=pointer]: 我之前抓过哪些关于 microservices 的页面？
+      - generic [ref=e47]:
+        - textbox "例如：帮我抓取 https://example.com 的内容并总结要点…" [ref=e48]
+        - button "发送 ↵" [ref=e49] [cursor=pointer]
+      - generic [ref=e50]: Enter 发送 · Shift+Enter 换行 · 智能体经 MCP 调用工具完成任务

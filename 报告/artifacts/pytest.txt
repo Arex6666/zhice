@@ -1,0 +1,19 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.9, pytest-8.4.2, pluggy-1.5.0 -- D:\anaconda\python.exe
+cachedir: .pytest_cache
+rootdir: D:\微服务架构2
+plugins: anyio-4.10.0
+collecting ... collected 10 items
+
+tests/test_agent.py::test_agent_loop_runs_offline PASSED                 [ 10%]
+tests/test_agent.py::test_agent_loop_no_tools_direct_answer PASSED       [ 20%]
+tests/test_storage.py::test_add_and_get PASSED                           [ 30%]
+tests/test_storage.py::test_search PASSED                                [ 40%]
+tests/test_storage.py::test_stats PASSED                                 [ 50%]
+tests/test_storage.py::test_api PASSED                                   [ 60%]
+tests/test_tools.py::test_clean_text PASSED                              [ 70%]
+tests/test_tools.py::test_get_title PASSED                               [ 80%]
+tests/test_tools.py::test_extract_links PASSED                           [ 90%]
+tests/test_tools.py::test_crawl_structured PASSED                        [100%]
+
+============================= 10 passed in 0.56s ==============================

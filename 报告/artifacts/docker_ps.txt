@@ -1,0 +1,5 @@
+NAME                        IMAGE                            STATUS                        PORTS
+zhiyue-agent-service-1      zhiyue/agent-service:latest      Up About a minute             8001/tcp
+zhiyue-api-gateway-1        zhiyue/api-gateway:latest        Up About a minute             0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp
+zhiyue-mcp-tool-service-1   zhiyue/mcp-tool-service:latest   Up About a minute             0.0.0.0:8002->8002/tcp, [::]:8002->8002/tcp
+zhiyue-storage-service-1    zhiyue/storage-service:latest    Up About a minute (healthy)   8003/tcp

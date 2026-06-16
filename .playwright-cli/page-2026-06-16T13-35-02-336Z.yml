@@ -1,0 +1,95 @@
+- generic:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - heading [level=1]: MCP Inspector v0.22.0
+          - generic:
+            - generic:
+              - generic:
+                - text: Transport Type
+                - combobox [expanded]:
+                  - generic: STDIO
+                  - img
+              - generic:
+                - text: Command
+                - textbox:
+                  - /placeholder: Command
+                  - text: python
+              - generic:
+                - text: Arguments
+                - textbox:
+                  - /placeholder: Arguments (space-separated)
+                  - text: D:/微服务架构2/guide-baseline/web_content_mcp.py
+              - generic:
+                - button:
+                  - img
+                  - text: Environment Variables
+              - generic:
+                - button:
+                  - img
+                  - text: Server Entry
+                - button:
+                  - img
+                  - text: Servers File
+              - generic:
+                - button:
+                  - img
+                  - text: Authentication
+              - generic:
+                - button:
+                  - img
+                  - img
+                  - text: Configuration
+              - generic:
+                - button:
+                  - img
+                  - text: Connect
+                - generic:
+                  - generic: Connection Error - Check if your MCP server is running and proxy token is correct
+          - generic:
+            - generic:
+              - combobox:
+                - generic: System
+                - img
+              - generic:
+                - link:
+                  - /url: https://modelcontextprotocol.io/docs/tools/inspector
+                  - img
+                - link:
+                  - /url: https://modelcontextprotocol.io/docs/tools/debugging
+                  - img
+                - link:
+                  - /url: https://github.com/modelcontextprotocol/inspector
+                  - img
+      - generic:
+        - generic:
+          - generic:
+            - paragraph: Connect to an MCP server to start inspecting
+            - generic:
+              - paragraph: Need to configure authentication?
+              - button: Open Auth Settings
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - heading [level=2]: History
+                  - button [disabled]: Clear
+                - paragraph: No history yet
+              - generic:
+                - generic:
+                  - heading [level=2]: Server Notifications
+                  - button [disabled]: Clear
+                - paragraph: No notifications yet
+    - list
+  - listbox [ref=e105]:
+    - option "STDIO" [active] [selected] [ref=e106]:
+      - img [ref=e109]
+      - generic [ref=e111]: STDIO
+    - option "SSE" [ref=e112]:
+      - generic [ref=e114]: SSE
+    - option "Streamable HTTP" [ref=e115]:
+      - generic [ref=e117]: Streamable HTTP

@@ -1,0 +1,15 @@
+[1] 通过 SSE 连接 MCP 服务器：http://localhost:8002/sse
+    握手成功，服务器：ZhiYue Web Tools v1.27.2
+[2] list_tools —— 服务器暴露的 MCP 工具：
+      - get_web_content: 获取网页内容：抓取给定 URL 的网页，去除脚本/样式后返回纯文本（最多 4000 字）。
+      - extract_links: 提取网页中的所有超链接，返回 [{text, href}]，相对链接会被转为绝对链接。
+      - crawl_structured: 按 CSS 选择器抽取结构化条目，返回 [{text, href}]。
+      - save_document: 把一篇网页内容保存到智能体的记忆库（storage-service），返回文档 id。
+      - search_documents: 在记忆库中检索此前抓取过的网页（按关键词模糊匹配标题/正文/URL）。
+[3] call_tool get_web_content(url=https://example.com)
+    返回（前 200 字）：
+    Example Domain Example Domain This domain is for use in documentation examples without needing permission. Avoid use in operations. Learn more
+[4] call_tool extract_links(url=...) —— 返回内容（前 200 字）
+    {   "text": "Learn more",   "href": "https://iana.org/domains/example" }
+
+[OK] MCP 服务测试通过：initialize / list_tools / call_tool 均正常。

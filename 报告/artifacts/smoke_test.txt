@@ -1,0 +1,15 @@
+== A. 核心链路（无需 LLM）==
+  [PASS] gateway /health == ok
+  [PASS] MCP 暴露 5 个工具  -> crawl_structured,extract_links,get_web_content,save_document,search_documents
+  [PASS] get_web_content 抓取成功  -> Example Domain Example Domain This domain is for use in docu
+  [PASS] save_document 写入记忆库  -> {
+  "id": 2,
+  "url": "https://example.com",
+  "title": "Exa
+  [PASS] search_documents 检索命中
+  [PASS] gateway /api/documents 命中已存文档
+== B. 智能体完整对话（经 gateway 调用 DeepSeek）==
+  [PASS] /api/chat 返回非空回答  -> **一句话总结：** example.com 是一个用于文档示例的保留域名，任何人都可以在不申请许可的情况下直接使用它来
+  [PASS] 智能体至少调用了一个 MCP 工具  -> get_web_content
+
+结果：8 通过, 0 失败
