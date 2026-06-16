@@ -375,17 +375,20 @@ def sec4():
         ["网络 I/O", "同步 requests", "异步 httpx（不阻塞事件循环）"],
         ["错误语义", "返回 'Error:' 字符串", "抛异常→MCP isError，客户端可感知失败"],
     ])
-    para("第三步——测试 MCP 服务：可在宿主机执行下述命令启动官方 MCP Inspector，在浏览器中 Connect、"
-         "选择 get_web_content 工具、输入 URL 并运行；也可将 Inspector 的 SSE 传输指向运行中的服务 "
-         "http://localhost:8002/sse 进行可视化调试：", indent=True)
-    code_block("mcp dev guide-baseline/web_content_mcp.py")
-    para("为获得可复现的验证记录，本实验另用官方 MCP Python 客户端（ClientSession）通过 SSE 完成与 "
-         "Inspector 等价的交互——initialize → list_tools → call_tool，输出如下：", indent=True)
+    para("第三步——测试 MCP 服务：在宿主机执行下述命令启动官方 MCP Inspector，在浏览器中以 stdio 传输 "
+         "Connect、选择 get_web_content 工具、输入 URL 并运行：", indent=True)
+    code_block("mcp dev guide-baseline/web_content_mcp_stdio.py")
+    para("实测要点（已踩坑并解决）：① MCP Inspector v0.22 默认开启 DNS 重绑定保护，需设置环境变量 "
+         "ALLOWED_ORIGINS 允许浏览器来源（如 http://127.0.0.1:6274），否则代理会以 Invalid origin 拒绝连接；"
+         "② stdio 传输下 stdout 即 JSON-RPC 通道，故启动日志须输出到 stderr（见 web_content_mcp_stdio.py）；"
+         "③ Windows 含中文路径时建议将脚本复制到纯英文路径再连接。下图为经 stdio 成功连接 Web Scraper 服务"
+         "并运行 get_web_content 的结果：", indent=True)
+    image("报告/screenshots/02_mcp_inspector.png", width=6.4,
+          cap="图 4-1  MCP Inspector 经 stdio 连接 Web Scraper 服务，initialize→tools/list→tools/call 全部成功，"
+              "get_web_content 返回 Tool Result: Success")
+    para("此外，为获得可复现的文本验证记录，本实验另用官方 MCP Python 客户端（ClientSession）通过 SSE "
+         "完成与 Inspector 等价的交互——initialize → list_tools → call_tool，输出如下：", indent=True)
     code_block(read("报告/artifacts/mcp_client_test.txt"))
-    image("报告/screenshots/02_mcp_inspector.png", width=6.2,
-          cap="图 4-1  MCP Inspector 中连接并运行 get_web_content 工具（可选）",
-          hint="可选：运行 `mcp dev guide-baseline/web_content_mcp.py` 或将 Inspector 经 SSE 指向 "
-               "localhost:8002/sse，连接后运行 get_web_content 截图，置于 报告/screenshots/02_mcp_inspector.png")
     para("第四步——配置 Cline 使用 MCP 服务：编辑 cline_mcp_settings.json，指向脚本绝对路径，"
          "保存后出现绿色圆点代表配置成功（配置见附录 F）：", indent=True)
     code_block(read("guide-baseline/cline_mcp_settings.json"))

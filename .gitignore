@@ -35,3 +35,6 @@ _antiword_err.txt
 
 # preview build
 报告/_preview.pdf
+
+# playwright scratch
+.playwright-cli/
