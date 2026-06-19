@@ -49,3 +49,25 @@ async def call_tool(session, name, arguments):
     if getattr(res, "isError", False):
         return f"[工具调用失败] {text}"
     return text
+
+
+async def call_tool_data(session, name, arguments):
+    """调用 MCP 工具并返回结构化数据（dict/list），失败时返回 {'error':...}。
+
+    优先用 structuredContent（FastMCP 对返回值的结构化封装，dict 会包成 {'result':...}）。
+    """
+    import json
+
+    res = await session.call_tool(name, arguments or {})
+    if getattr(res, "isError", False):
+        text = "\n".join(getattr(c, "text", "") for c in res.content)
+        return {"error": text}
+    sc = getattr(res, "structuredContent", None)
+    if isinstance(sc, dict):
+        return sc.get("result", sc)
+    text = "\n".join(getattr(c, "text", "") for c in res.content)
+    try:
+        parsed = json.loads(text)
+        return parsed.get("result", parsed) if isinstance(parsed, dict) else parsed
+    except Exception:
+        return text
