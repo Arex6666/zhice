@@ -463,9 +463,61 @@ def sec6():
     bullet("接入 Prometheus + Grafana 与链路追踪，完善可观测性。")
 
 
-# ====================================================== 七、参考资料
+# =========================== 七、扩展实现：智策金融平台
+def sec_finance():
+    h1("七", "扩展实现：智策多智能体金融分析平台")
+    para("在“智阅”MCP 智能体平台之上，进一步扩展出金融垂直能力——“智策 ZhiCe”：自动采集 "
+         "A股/美股/加密货币行情与新闻，由证据链投研委员会产出带证据、置信度与免责声明的多空研判。"
+         "其创新不在“能分析股票”，而在把金融智能体推进到**可信研判范式**——一个面向高不确定性场景的"
+         "**多智能体证据治理框架**。", indent=True)
+
+    h2("7.1 五大可信支柱")
+    bullet("证据治理 Evidence Governance：确定性规则引擎对每条研判施加治理（无证据不出强结论、数据过期降置信、"
+           "证据冲突暴露分歧、模型无效弃权、回测不稳不支持高置信、新闻区分事实/情绪/推断）。")
+    bullet("不确定性管理 Uncertainty Management：不预测涨跌，而是回答“有哪些支持/反对证据、是否依据充分、置信度是否合理”。")
+    bullet("弃权感知 Abstention-aware：数据不可靠/证据不足/模型无统计优势时主动弃权，而非硬答。")
+    bullet("自审计 Self-auditing：每次研判落库，到期用真实市场结果反向审计（命中率、各委员有效性、主席是否过度自信）。")
+    bullet("反证感知解释 Counter-evidence-aware：解释不仅说“为何如此”，更说“什么证据反对、什么条件会使结论失效、谁持异议”。")
+
+    h2("7.2 架构（在智阅 4 服务上加法 + 新增 ingestion-service）")
+    para("新增金融 MCP 工具（get_quote/get_kline/get_indicators/get_stock_news/compute_signals/backtest/"
+         "market_overview，共 12 个 MCP 工具）、市场无关数据适配器与**数据质量层**（每条行情标注 "
+         "data_status ∈ {fresh/delayed/stale/fallback/error} 及停牌/涨跌停/复权口径）；agent-service 升级为"
+         "证据链投研委员会 + XGBoost 信号校准器 + 主席汇总；新增 ingestion-service 定时采集+复盘回填+异常告警；"
+         "网关新增金融仪表盘与决策解释面板。", indent=True)
+
+    h2("7.3 证据治理引擎（R1–R6）")
+    table(["规则", "触发", "动作"], [
+        ["R1 无证据不出强结论", "委员给强结论但无证据", "降为中性/弃权"],
+        ["R2 数据过期降置信", "data_status=stale/error", "置信度≤0.4"],
+        ["R3 冲突暴露分歧", "委员意见冲突", "封顶0.55、标记分歧"],
+        ["R4 模型无效弃权", "XGBoost AUC≈0.5/样本不足", "该票剔除"],
+        ["R5 回测不稳不支持高置信", "参数敏感性不稳", "封顶0.6"],
+        ["R6 新闻分层", "仅情绪/推断证据", "降为中性"],
+    ])
+    para("最终置信度 = min(主席提议, 治理上限)，使“高置信”必须有据。", indent=True)
+
+    h2("7.4 运行实证（实测）")
+    para("端到端冒烟测试（对运行中的 5 服务栈）：", indent=True)
+    code_block(read("报告/artifacts/smoke_finance.txt"))
+    para("诚实说明：XGBoost 校准器在 1824 个 A股样本上样本外 AUC≈0.51（无 T+1 统计优势），按设计**自动弃权**，"
+         "由治理引擎 R4 处理——这正是“弃权感知”的真实演示。美股(yfinance)在本网络环境不可达，"
+         "被标注 data_status=error 优雅降级；加密货币经 CoinGecko 回退获取。", indent=True)
+
+    h2("7.5 结果展示")
+    image("报告/screenshots/07_finance_chart.png", width=6.4,
+          cap="图 7-1  金融仪表盘：K线 + MA5/MA20 + 成交量 + MACD/RSI 副图（指标据 K 线本地滚动计算）")
+    image("报告/screenshots/06_finance_deep.png", width=4.2,
+          cap="图 7-2  深度研判全貌：证据链投研委员会（四面 LLM 分析师 + ML 票）+ 主席置信度环 + 反证驱动解释面板")
+    image("报告/screenshots/08_finance_explanation.png", width=6.4,
+          cap="图 7-3  反证驱动决策解释面板：主席结论 + 置信度环 + 主要支持/反对证据 + 结论失效条件")
+    para("说明：金融研判仅供学习研究，不构成投资建议；短周期方向接近随机游走，ML 与回测均标注未来函数/过拟合/不可外推。",
+         indent=True, italic=True)
+
+
+# ====================================================== 八、参考资料
 def sec7():
-    h1("七", "参考资料")
+    h1("八", "参考资料")
     refs = [
         "Model Context Protocol 官方规范. https://modelcontextprotocol.io/",
         "MCP Python SDK (FastMCP). https://github.com/modelcontextprotocol/python-sdk",
@@ -474,6 +526,10 @@ def sec7():
         "Beautiful Soup 文档. https://www.crummy.com/software/BeautifulSoup/",
         "阿里云容器镜像服务 ACR 文档. https://help.aliyun.com/product/60716.html",
         "Docker / Docker Compose 官方文档. https://docs.docker.com/",
+        "AKShare 开源财经数据接口库. https://akshare.akfamily.xyz/",
+        "yfinance（Yahoo Finance 数据）. https://github.com/ranaroussi/yfinance",
+        "XGBoost 文档. https://xgboost.readthedocs.io/ ；scikit-learn 概率校准. https://scikit-learn.org/",
+        "Apache ECharts 可视化库. https://echarts.apache.org/",
         "《MCP 服务实验指导书》（课程资料）。",
     ]
     for i, r in enumerate(refs, 1):
@@ -484,9 +540,9 @@ def sec7():
         _cjk(run, BODY)
 
 
-# ====================================================== 八、附录
+# ====================================================== 九、附录
 def sec8():
-    h1("八", "附录（源代码）")
+    h1("九", "附录（源代码）")
     para("项目目录结构：", bold=True)
     code_block(
         "微服务架构2/\n"
@@ -527,6 +583,16 @@ def sec8():
     appendix_file("tests/test_tools.py")
     appendix_file("scripts/smoke_test.py")
 
+    para("附录 H — 智策金融平台核心源码", bold=True, color=JADE)
+    appendix_file("services/mcp-tool-service/data_quality.py")
+    appendix_file("services/mcp-tool-service/indicators.py")
+    appendix_file("services/mcp-tool-service/backtest.py")
+    appendix_file("services/mcp-tool-service/finance.py")
+    appendix_file("services/agent-service/governance.py")
+    appendix_file("services/agent-service/ml_signal.py")
+    appendix_file("services/agent-service/committee.py")
+    appendix_file("services/agent-service/review.py")
+
 
 # ====================================================== build
 cover()
@@ -536,6 +602,7 @@ sec3()
 sec4()
 sec5()
 sec6()
+sec_finance()
 sec7()
 sec8()
 
