@@ -13,6 +13,20 @@ SINA_HEADERS = {"Referer": "https://finance.sina.com.cn", "User-Agent": "Mozilla
 UA = {"User-Agent": "Mozilla/5.0"}
 
 
+async def aget(client, url, retries=3, **kw):
+    """带重试的 GET，吸收数据源偶发断连（RemoteProtocolError 等）。"""
+    last = None
+    for i in range(retries):
+        try:
+            r = await client.get(url, **kw)
+            r.raise_for_status()
+            return r
+        except Exception as e:
+            last = e
+            await anyio.sleep(0.4 * (i + 1))
+    raise last
+
+
 # ----------------------------------------------------------------- pure parser
 def parse_sina_quote(text):
     """解析新浪行情行 var hq_str_xxx="名称,今开,昨收,现价,最高,最低,...";"""
@@ -50,13 +64,18 @@ class AshareAdapter(MarketAdapter):
     async def get_quote(self, code):
         url = f"https://hq.sinajs.cn/list={_ashare_sina_code(code)}"
         async with httpx.AsyncClient(timeout=10, headers=SINA_HEADERS) as c:
-            r = await c.get(url)
+            r = await aget(c, url)
             r.encoding = "gbk"
-            r.raise_for_status()
             return parse_sina_quote(r.text)
 
     async def get_kline(self, code, period="daily", count=120, adjust="qfq"):
-        # 直连东方财富 push2his JSON（比 akshare 抓取更稳、async 原生）
+        # 主源：东方财富 push2his JSON；失败回退 新浪 K 线 JSON（多源容错）
+        try:
+            return await self._kline_eastmoney(code, period, count, adjust)
+        except Exception:
+            return await self._kline_sina(code, count)
+
+    async def _kline_eastmoney(self, code, period, count, adjust):
         secid = f"{'1' if code[0] == '6' else '0'}.{code}"
         klt = {"daily": 101, "weekly": 102, "monthly": 103, "60min": 60}.get(period, 101)
         fqt = {"qfq": 1, "hfq": 2, "none": 0}.get(adjust, 1)
@@ -64,15 +83,27 @@ class AshareAdapter(MarketAdapter):
                   "fields1": "f1,f2,f3,f4,f5,f6",
                   "fields2": "f51,f52,f53,f54,f55,f56,f57,f58"}
         async with httpx.AsyncClient(timeout=12, headers=UA) as c:
-            r = await c.get("https://push2his.eastmoney.com/api/qt/stock/kline/get", params=params)
-            r.raise_for_status()
+            r = await aget(c, "https://push2his.eastmoney.com/api/qt/stock/kline/get", params=params)
             klines = (r.json().get("data") or {}).get("klines") or []
         out = []
         for s in klines:  # 日期,开,收,高,低,成交量,...
             p = s.split(",")
             out.append({"ts": p[0], "open": float(p[1]), "close": float(p[2]),
                         "high": float(p[3]), "low": float(p[4]), "volume": float(p[5])})
+        if not out:
+            raise ValueError("eastmoney empty")
         return out
+
+    async def _kline_sina(self, code, count):
+        sym = _ashare_sina_code(code)
+        url = ("https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+               f"CN_MarketData.getKLineData?symbol={sym}&scale=240&datalen={count}")
+        async with httpx.AsyncClient(timeout=12, headers=SINA_HEADERS) as c:
+            r = await aget(c, url)
+            data = r.json()
+        return [{"ts": d["day"], "open": float(d["open"]), "high": float(d["high"]),
+                 "low": float(d["low"]), "close": float(d["close"]),
+                 "volume": float(d["volume"])} for d in data]
 
     async def get_news(self, code, limit=8):
         # 新闻非关键路径：akshare 失败时优雅返回空（委员会会据此弃权情绪票）

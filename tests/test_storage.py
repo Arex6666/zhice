@@ -51,3 +51,33 @@ def test_api(tmp_path, monkeypatch):
         assert cli.get(f"/documents/{doc_id}").json()["content"] == "deep learning"
         assert len(cli.get("/documents", params={"q": "deep"}).json()) == 1
         assert cli.get("/stats").json()["count"] == 1
+
+
+def test_analysis_review(tmp_path):
+    import importlib.util
+    s = importlib.util.spec_from_file_location("zdb2", "services/storage-service/db.py")
+    m = importlib.util.module_from_spec(s)
+    s.loader.exec_module(m)
+    p = str(tmp_path / "fin.db")
+    m.init_db(p)
+    i = m.add_analysis(p, "ASHARE:600519", "deep", "偏多", 0.6, "{}", 1200.0)
+    assert len(m.pending_reviews(p)) == 1
+    m.fill_review(p, i, 0.01, 0.02, -0.01, True)
+    st = m.review_stats(p)
+    assert st["reviewed"] == 1 and st["hit_rate"] == 1.0
+    assert len(m.pending_reviews(p)) == 0
+
+
+def test_quotes_news_watchlist(tmp_path):
+    import importlib.util
+    s = importlib.util.spec_from_file_location("zdb3", "services/storage-service/db.py")
+    m = importlib.util.module_from_spec(s)
+    s.loader.exec_module(m)
+    p = str(tmp_path / "fin2.db")
+    m.init_db(p)
+    m.add_quote(p, "CRYPTO:BTCUSDT", 63000.0, 1.2, "t", "fresh", "binance")
+    assert m.get_quotes(p, "CRYPTO:BTCUSDT")[0]["price"] == 63000.0
+    m.add_news(p, "ASHARE:600519", "title", "http://x", "em", "t")
+    assert len(m.get_news(p, "ASHARE:600519")) == 1
+    m.set_watchlist(p, [{"symbol": "ASHARE:600519", "market": "ASHARE"}])
+    assert len(m.get_watchlist(p)) == 1
