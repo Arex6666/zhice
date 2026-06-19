@@ -60,14 +60,21 @@ async def call_tool_data(session, name, arguments):
 
     res = await session.call_tool(name, arguments or {})
     if getattr(res, "isError", False):
-        text = "\n".join(getattr(c, "text", "") for c in res.content)
-        return {"error": text}
+        return {"error": "\n".join(getattr(c, "text", "") for c in res.content)}
     sc = getattr(res, "structuredContent", None)
-    if isinstance(sc, dict):
-        return sc.get("result", sc)
-    text = "\n".join(getattr(c, "text", "") for c in res.content)
-    try:
-        parsed = json.loads(text)
-        return parsed.get("result", parsed) if isinstance(parsed, dict) else parsed
-    except Exception:
-        return text
+    if isinstance(sc, dict) and "result" in sc:
+        return sc["result"]
+    if isinstance(sc, dict) and sc:
+        return sc
+    # 逐个解析 content 文本块（list 返回值会被拆成多个 TextContent 块）
+    blocks = [getattr(c, "text", "") for c in res.content if getattr(c, "text", "")]
+    parsed = []
+    for b in blocks:
+        try:
+            parsed.append(json.loads(b))
+        except Exception:
+            parsed.append(b)
+    if len(parsed) == 1:
+        v = parsed[0]
+        return v.get("result", v) if isinstance(v, dict) else v
+    return parsed

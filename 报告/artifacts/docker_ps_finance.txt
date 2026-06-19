@@ -1,0 +1,6 @@
+NAME                         STATUS
+zhiyue-agent-service-1       Up 7 minutes (healthy)
+zhiyue-api-gateway-1         Up 15 minutes (healthy)
+zhiyue-ingestion-service-1   Up 15 minutes (healthy)
+zhiyue-mcp-tool-service-1    Up 15 minutes (healthy)
+zhiyue-storage-service-1     Up 15 minutes (healthy)
