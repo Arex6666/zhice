@@ -51,6 +51,30 @@ async def finance_review():
     return await finance_agent.analyze("", "review")
 
 
+@app.get("/finance/quote")
+async def finance_quote(symbol: str):
+    import finance_agent
+    return await finance_agent.mcp_tool("get_quote", {"symbol": symbol})
+
+
+@app.get("/finance/kline")
+async def finance_kline(symbol: str, period: str = "daily", count: int = 120):
+    import finance_agent
+    return await finance_agent.mcp_tool("get_kline", {"symbol": symbol, "period": period, "count": count})
+
+
+@app.get("/finance/indicators")
+async def finance_indicators(symbol: str):
+    import finance_agent
+    return await finance_agent.mcp_tool("get_indicators", {"symbol": symbol})
+
+
+@app.get("/finance/news")
+async def finance_news(symbol: str, limit: int = 8):
+    import finance_agent
+    return await finance_agent.mcp_tool("get_stock_news", {"symbol": symbol, "limit": limit})
+
+
 @app.get("/status")
 def status():
     return {"service": "agent-service", "status": "ok"}

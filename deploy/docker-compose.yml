@@ -54,12 +54,29 @@ services:
       <<: *py-health
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8001/health')"]
 
+  ingestion-service:
+    build: ../services/ingestion-service
+    image: zhiyue/ingestion-service:latest
+    environment:
+      STORAGE_URL: http://storage-service:8003
+    ports:
+      - "8004:8004"
+    depends_on:
+      storage-service:
+        condition: service_healthy
+    networks: [zhiyue-net]
+    restart: unless-stopped
+    healthcheck:
+      <<: *py-health
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8004/health')"]
+
   api-gateway:
     build: ../services/api-gateway
     image: zhiyue/api-gateway:latest
     environment:
       AGENT_URL: http://agent-service:8001
       STORAGE_URL: http://storage-service:8003
+      INGESTION_URL: http://ingestion-service:8004
     ports:
       - "8080:8080"
     depends_on:

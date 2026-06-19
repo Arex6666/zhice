@@ -38,3 +38,6 @@ _antiword_err.txt
 
 # playwright scratch
 .playwright-cli/
+
+# model binaries
+*.pkl

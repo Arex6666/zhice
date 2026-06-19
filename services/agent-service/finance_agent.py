@@ -70,6 +70,12 @@ async def _storage_get(path, params=None):
         return r.json()
 
 
+async def mcp_tool(tool, args):
+    """供仪表盘取图表数据：开一个 MCP 会话调用单个金融工具并返回结构化数据。"""
+    async with mcp_client.open_session() as session:
+        return await mcp_client.call_tool_data(session, tool, args)
+
+
 async def analyze(symbol, mode="deep"):
     if mode == "teach":
         return {"mode": "teach", "content": modes.TEACH, "disclaimer": DISCLAIMER}
