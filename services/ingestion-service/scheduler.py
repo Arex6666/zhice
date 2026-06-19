@@ -19,6 +19,10 @@ STORAGE_URL = os.getenv("STORAGE_URL", "http://storage-service:8003").rstrip("/"
 QUOTE_INTERVAL_SEC = int(os.getenv("QUOTE_INTERVAL_SEC", "300"))
 REVIEW_INTERVAL_SEC = int(os.getenv("REVIEW_INTERVAL_SEC", "3600"))
 ALERT_INTERVAL_SEC = int(os.getenv("ALERT_INTERVAL_SEC", "600"))
+ALERT_CHANGE_PCT = float(os.getenv("ALERT_CHANGE_PCT", "5.0"))
+
+# (symbol, 交易日) 去重集合，避免同一标的当日重复告警造成"告警风暴"
+_alerted_today: set = set()
 
 # watchlist 为空时的兜底标的。
 DEFAULT_WATCHLIST = [
@@ -156,16 +160,22 @@ async def fill_reviews():
                     failures += 1
                     continue
                 now_price = quote["price"]
+                if not now_price or now_price <= 0:
+                    continue  # 无效现价（停牌/竞价）不回填，避免 -100% 脏数据
                 ret_1d = (now_price - price0) / price0
-                # ret_3d / ret_5d 暂用 1d 占位（后续可接入历史K线）。
-                ret_3d = ret_5d = ret_1d
-                # pending 行未必带 verdict，故先以"收益为正即判对"作占位口径。
-                correct = ret_1d > 0
+                # 按研判方向判定是否兑现（带最小波动阈值，过滤 ret≈0 抖动）；
+                # analysis 行带 verdict（pending 用 SELECT *）。ret_3d/5d 暂不写假值。
+                verdict = (row.get("verdict") or "").strip()
+                thr = 0.005
+                if verdict == "偏多":
+                    correct = ret_1d > thr
+                elif verdict == "偏空":
+                    correct = ret_1d < -thr
+                else:  # 中性/缺失：以"波动在阈值内"视为兑现
+                    correct = abs(ret_1d) <= thr
                 rid = row.get("id")
                 params = {
                     "ret_1d": ret_1d,
-                    "ret_3d": ret_3d,
-                    "ret_5d": ret_5d,
                     "correct": str(correct).lower(),
                 }
                 r2 = await client.post(f"{STORAGE_URL}/analysis/{rid}/review", params=params)
@@ -176,25 +186,34 @@ async def fill_reviews():
 
 
 async def scan_alerts():
-    """扫描 watchlist，单日涨跌幅 >=5% 则上报 big_move 告警。"""
+    """扫描 watchlist，单日涨跌幅 >=阈值 则上报 big_move 告警（交易时段 + 按日去重，防告警风暴）。"""
     global alerts_raised, failures
     _touch()
+    today = datetime.now(_SHANGHAI).date().isoformat()
+    trading = is_a_share_trading()
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         watchlist = await _get_watchlist(client)
         for item in watchlist:
             symbol = item.get("symbol")
             if not symbol:
                 continue
+            if _is_ashare(item) and not trading:
+                continue  # A股非交易时段不告警（避免盘后/周末重复上报）
+            key = (symbol, today)
+            if key in _alerted_today:
+                continue  # 当日已就该标的告警 → 抑制重复
             try:
                 quote = await datafetch.fetch_quote(symbol)
                 if quote.get("error"):
-                    continue  # 未接入市场不算失败
+                    continue  # 未接入市场/无效行情不算失败
                 change_pct = quote.get("change_pct", 0.0)
-                if abs(change_pct) >= 5.0:
-                    detail = f"{quote.get('name', symbol)} 单日波动 {change_pct:.2f}% (现价 {quote.get('price')})"
+                if abs(change_pct) >= ALERT_CHANGE_PCT:
+                    direction = "涨" if change_pct > 0 else "跌"
+                    detail = f"{quote.get('name', symbol)} 单日{direction} {change_pct:.2f}% (现价 {quote.get('price')})"
                     params = {"symbol": symbol, "type": "big_move", "detail": detail}
                     resp = await client.post(f"{STORAGE_URL}/alerts", params=params)
                     resp.raise_for_status()
+                    _alerted_today.add(key)
                     alerts_raised += 1
             except Exception:  # noqa: BLE001
                 failures += 1

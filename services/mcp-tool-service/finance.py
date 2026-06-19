@@ -14,14 +14,19 @@ UA = {"User-Agent": "Mozilla/5.0"}
 
 
 async def aget(client, url, retries=3, **kw):
-    """带重试的 GET，吸收数据源偶发断连（RemoteProtocolError 等）。"""
+    """带重试的 GET：仅对瞬时错误(连接/超时/5xx)重试；4xx 立即失败（不浪费重试）。"""
     last = None
     for i in range(retries):
         try:
             r = await client.get(url, **kw)
             r.raise_for_status()
             return r
-        except Exception as e:
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code < 500:
+                raise  # 4xx（如 Binance 451）快速失败，便于尽快回退
+            last = e
+            await anyio.sleep(0.4 * (i + 1))
+        except (httpx.TransportError, httpx.TimeoutException) as e:
             last = e
             await anyio.sleep(0.4 * (i + 1))
     raise last
@@ -70,9 +75,10 @@ class AshareAdapter(MarketAdapter):
 
     async def get_kline(self, code, period="daily", count=120, adjust="qfq"):
         # 主源：东方财富 push2his JSON；失败回退 新浪 K 线 JSON（多源容错）
+        # 注意：新浪回退为不复权数据；当请求复权(qfq/hfq)时回退会改变口径（已知降级）。
         try:
             return await self._kline_eastmoney(code, period, count, adjust)
-        except Exception:
+        except (httpx.HTTPError, ValueError, KeyError, IndexError):
             return await self._kline_sina(code, count)
 
     async def _kline_eastmoney(self, code, period, count, adjust):
@@ -171,9 +177,8 @@ class CryptoAdapter(MarketAdapter):
         # Binance 优先（CN 常被 451 封禁），失败回退 CoinGecko
         try:
             async with httpx.AsyncClient(timeout=10, headers=UA) as c:
-                r = await c.get("https://api.binance.com/api/v3/ticker/24hr",
-                                params={"symbol": code})
-                r.raise_for_status()
+                r = await aget(c, "https://api.binance.com/api/v3/ticker/24hr",
+                               params={"symbol": code})
                 d = r.json()
                 return {"name": code, "price": float(d["lastPrice"]),
                         "prev_close": float(d["prevClosePrice"]), "volume": float(d["volume"]),
@@ -181,10 +186,12 @@ class CryptoAdapter(MarketAdapter):
         except Exception:
             ids = self._cg_id(code)
             async with httpx.AsyncClient(timeout=10, headers=UA) as c:
-                r = await c.get("https://api.coingecko.com/api/v3/coins/markets",
-                                params={"vs_currency": "usd", "ids": ids})
-                r.raise_for_status()
-                d = r.json()[0]
+                r = await aget(c, "https://api.coingecko.com/api/v3/coins/markets",
+                               params={"vs_currency": "usd", "ids": ids})
+                arr = r.json()
+                if not isinstance(arr, list) or not arr:
+                    raise ValueError(f"coingecko 未收录该符号：{code}")
+                d = arr[0]
                 price = float(d["current_price"])
                 prev = price - float(d.get("price_change_24h") or 0)
                 return {"name": code, "price": price, "prev_close": prev,
@@ -195,9 +202,8 @@ class CryptoAdapter(MarketAdapter):
         try:
             interval = {"daily": "1d", "weekly": "1w", "60min": "1h"}.get(period, "1d")
             async with httpx.AsyncClient(timeout=10, headers=UA) as c:
-                r = await c.get("https://api.binance.com/api/v3/klines",
-                                params={"symbol": code, "interval": interval, "limit": count})
-                r.raise_for_status()
+                r = await aget(c, "https://api.binance.com/api/v3/klines",
+                               params={"symbol": code, "interval": interval, "limit": count})
                 return [{"ts": str(k[0]), "open": float(k[1]), "high": float(k[2]),
                          "low": float(k[3]), "close": float(k[4]), "volume": float(k[5])}
                         for k in r.json()]
@@ -207,10 +213,12 @@ class CryptoAdapter(MarketAdapter):
             allowed = [1, 7, 14, 30, 90, 180, 365]
             days = next((d for d in allowed if d >= min(count, 365)), 365)
             async with httpx.AsyncClient(timeout=12, headers=UA) as c:
-                r = await c.get(f"https://api.coingecko.com/api/v3/coins/{ids}/ohlc",
-                                params={"vs_currency": "usd", "days": days})
-                r.raise_for_status()
-                rows = r.json()[-count:]
+                r = await aget(c, f"https://api.coingecko.com/api/v3/coins/{ids}/ohlc",
+                               params={"vs_currency": "usd", "days": days})
+                data = r.json()
+                if not isinstance(data, list) or not data:
+                    raise ValueError(f"coingecko OHLC 无数据：{code}")
+                rows = data[-count:]
                 return [{"ts": str(k[0]), "open": float(k[1]), "high": float(k[2]),
                          "low": float(k[3]), "close": float(k[4]), "volume": 0.0}
                         for k in rows]
@@ -220,6 +228,19 @@ class CryptoAdapter(MarketAdapter):
 
 
 _ADAPTERS = {"ASHARE": AshareAdapter, "US": UsAdapter, "CRYPTO": CryptoAdapter}
+
+
+async def ashare_eastmoney_price(code):
+    """A股第二数据源（东方财富 push2），用于跨源价差校验；失败返回 None（best-effort）。"""
+    secid = f"{'1' if code[0] == '6' else '0'}.{code}"
+    try:
+        async with httpx.AsyncClient(timeout=8, headers=UA) as c:
+            r = await aget(c, "https://push2.eastmoney.com/api/qt/stock/get",
+                           params={"secid": secid, "fields": "f43"})
+            f43 = (r.json().get("data") or {}).get("f43")
+            return float(f43) / 100 if f43 not in (None, "-") else None
+    except Exception:
+        return None
 
 
 def get_adapter(market):

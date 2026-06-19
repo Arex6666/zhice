@@ -27,14 +27,24 @@ def backtest_ma(closes, short, long, fee_bps=5, slippage_bps=5):
     trades_idx = np.where(np.diff(pos) != 0)[0]
     ntr = int(len(trades_idx))
     strat = pos * ret
-    if len(trades_idx):
-        strat[trades_idx] = strat[trades_idx] - cost
+    # 成本扣在仓位真正切换后生效的那一天(i+1)，而非信号变化的空仓日(i)，避免污染空仓日
+    cost_idx = trades_idx + 1
+    cost_idx = cost_idx[cost_idx < len(strat)]
+    if len(cost_idx):
+        strat[cost_idx] = strat[cost_idx] - cost
     eq = np.cumprod(1 + strat)
     total = float(eq[-1] - 1)
     bench = float(c[-1] / c[0] - 1)
     n = len(strat)
-    ann = float((1 + total) ** (252 / max(n, 1)) - 1)
-    sharpe = float(np.mean(strat) / (np.std(strat) + 1e-9) * np.sqrt(252))
+    # 年化仅在样本足够时给出，避免短样本指数外推（与"不可外推"声明一致）
+    ann = float((1 + total) ** (252 / n) - 1) if n >= 200 else None
+    # 夏普基于"在场"交易日、用 ddof=1（样本标准差）；空仓日不计入
+    in_pos = strat[pos != 0]
+    if len(in_pos) > 1:
+        sd = float(np.std(in_pos, ddof=1))
+        sharpe = float(np.mean(in_pos) / (sd + 1e-9) * np.sqrt(252))
+    else:
+        sharpe = 0.0
     dd = float(np.min(eq / np.maximum.accumulate(eq) - 1))
     active = strat[strat != 0]
     wr = float((active > 0).mean()) if len(active) else 0.0

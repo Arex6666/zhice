@@ -500,9 +500,13 @@ def sec_finance():
     h2("7.4 运行实证（实测）")
     para("端到端冒烟测试（对运行中的 5 服务栈）：", indent=True)
     code_block(read("报告/artifacts/smoke_finance.txt"))
-    para("诚实说明：XGBoost 校准器在 1824 个 A股样本上样本外 AUC≈0.51（无 T+1 统计优势），按设计**自动弃权**，"
-         "由治理引擎 R4 处理——这正是“弃权感知”的真实演示。美股(yfinance)在本网络环境不可达，"
-         "被标注 data_status=error 优雅降级；加密货币经 CoinGecko 回退获取。", indent=True)
+    para("XGBoost 校准器离线训练实测（可复现产物）：", indent=True)
+    code_block(read("报告/artifacts/ml_train.txt"))
+    para("诚实说明：XGBoost 校准器在 8 只 A股、1824 个样本上**样本外 AUC≈0.51**（无 T+1 统计优势），按设计"
+         "**自动弃权**，由治理引擎 R4 将其从委员会票中剔除——这正是“弃权感知”的真实演示。加密货币因 Binance "
+         "在本网络环境返回 451 被封禁，自动回退 CoinGecko 获取；美股(yfinance/Yahoo)在本网络环境不可达，被标注为"
+         "**最严重的 data_status=error**，系统据此**优雅降级**（不崩溃、对用户显式提示该市场不可用），而非把陈旧/缺失数据当作可信。",
+         indent=True)
 
     h2("7.5 结果展示")
     image("报告/screenshots/07_finance_chart.png", width=6.4,

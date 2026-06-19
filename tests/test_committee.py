@@ -56,6 +56,24 @@ def test_committee_governs_confidence_and_disclaimer():
     assert len(out["members"]) == 4
 
 
+def test_chairman_direction_clamped_to_governance():
+    """主席说偏多，但所有委员都无证据被降为中性 → 最终方向必须被治理强制为中性。"""
+    com = _committee()
+    no_ev = {"verdict": "偏多", "confidence": 0.9, "reasons": ["凭感觉"],
+             "evidence": [], "counter_evidence": [], "risks": [],
+             "abstain": False, "abstain_reason": None}
+    chair = {"final": "偏多", "confidence": 0.9, "confidence_reason": "看多"}
+    llm = FakeLLM([no_ev, no_ev, no_ev, no_ev, chair])
+
+    async def gather(sym):
+        return {"indicators": {}, "signals": {}, "news": [], "backtest": {},
+                "market": {}, "data_status": "fresh", "backtest_stable": True}
+
+    out = asyncio.run(com.run_committee("ASHARE:600519", gather, llm, "m", ml=None))
+    assert out["verdict"] == "中性"  # 治理钳制：无据强结论被强制中性
+    assert any("强制中性" in x for x in out["governance_report"])
+
+
 def test_committee_includes_ml_vote():
     com = _committee()
     member = {"verdict": "中性", "confidence": 0.5, "reasons": [],

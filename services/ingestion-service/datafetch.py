@@ -98,7 +98,10 @@ async def fetch_quote(symbol: str) -> dict:
 
     prev_close = data["prev_close"]
     price = data["price"]
-    change_pct = ((price - prev_close) / prev_close * 100.0) if prev_close else 0.0
+    # 现价/昨收 <=0 多为停牌或集合竞价前的占位，视为无效行情（避免脏数据入库与 -100% 复盘）
+    if price <= 0 or prev_close <= 0:
+        return {"symbol": symbol, "error": "invalid price (likely halted/pre-open)"}
+    change_pct = (price - prev_close) / prev_close * 100.0
     return {
         "symbol": symbol,
         "name": data["name"],

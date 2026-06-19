@@ -81,7 +81,9 @@ def _ml_member(ml):
     if not ml or ml.get("abstain"):
         return None
     p = ml.get("prob_up")
-    verdict = "偏多" if p and p > 0.55 else ("偏空" if p and p < 0.45 else "中性")
+    if not isinstance(p, (int, float)):  # 非弃权但概率缺失/非数值 → 视同弃权，避免崩溃
+        return None
+    verdict = "偏多" if p > 0.55 else ("偏空" if p < 0.45 else "中性")
     return {"lens": "XGBoost信号校准器", "verdict": verdict, "confidence": abs((p or 0.5) - 0.5) * 2,
             "reasons": [f"历史相似形态 T+1 上涨概率≈{p:.0%}" if p else "弱信号"],
             "evidence": [{"type": "backtest", "source": "ml_signal",
@@ -112,8 +114,24 @@ async def run_committee(symbol, gather_fn, llm, model, ml=None):
     chair_raw = await _call_llm(llm, model, _CHAIR_INSTRUCT, chair_blob)
     chair = _parse_json(chair_raw) or {"final": "中性", "confidence": 0.3,
                                        "confidence_reason": "主席输出解析失败，保守中性"}
-    final_conf = round(min(float(chair.get("confidence", 0.5)), gov["ceiling"]), 3)
+
+    # 置信度容错 + clamp 到 [0, ceiling]（confidence 可能为 null/非数值）
+    try:
+        raw_conf = float(chair.get("confidence"))
+    except (TypeError, ValueError):
+        raw_conf = 0.3
+    final_conf = round(max(0.0, min(raw_conf, gov["ceiling"])), 3)
+
+    # 方向治理：主席方向必须落在治理允许集合内，否则强制中性（杜绝无据强结论）
+    allowed = gov.get("allowed_verdicts", {"中性"})
+    final_verdict = chair.get("final", "中性")
+    if final_verdict not in allowed:
+        gov["report"].append(
+            f"治理: 主席方向「{final_verdict}」无存活强结论支撑→强制中性")
+        final_verdict = "中性"
+        chair["final_governed"] = "中性"
+
     return {"symbol": symbol, "members": governed, "chairman": chair,
             "governance_report": gov["report"], "conflict": gov["conflict"],
-            "verdict": chair.get("final", "中性"), "confidence": final_conf,
+            "verdict": final_verdict, "confidence": final_conf,
             "data_status": data.get("data_status", "fresh"), "disclaimer": DISCLAIMER}

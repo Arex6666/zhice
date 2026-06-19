@@ -372,6 +372,7 @@
 "use strict";
 /* ---------------- helpers ---------------- */
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function safeUrl(u){ try{ const x=new URL(u, location.origin); return (x.protocol==='http:'||x.protocol==='https:') ? x.href : null; }catch(e){ return null; } }
 function $(id){ return document.getElementById(id); }
 function fmt(n, d){ return (n==null || isNaN(n)) ? '—' : Number(n).toFixed(d==null?2:d); }
 function pct(n){ return (n==null || isNaN(n)) ? '—' : (Number(n)*100).toFixed(0)+'%'; }
@@ -649,7 +650,8 @@ function renderNewsInto(box, news){
   }
   box.innerHTML = news.map(n => {
     const t = esc(n.title || '(无标题)');
-    const a = n.url ? '<a href="'+esc(n.url)+'" target="_blank" rel="noopener">'+t+' ↗</a>' : '<a>'+t+'</a>';
+    const su = safeUrl(n.url);  // 仅放行 http/https，拦截 javascript:/data: 点击型 XSS
+    const a = su ? '<a href="'+esc(su)+'" target="_blank" rel="noopener">'+t+' ↗</a>' : '<span class="news-title">'+t+'</span>';
     const meta = esc([n.source, n.ts].filter(Boolean).join(' · '));
     return '<div class="news-item">'+a+'<span class="meta">'+meta+'</span></div>';
   }).join('');

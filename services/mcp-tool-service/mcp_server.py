@@ -91,7 +91,16 @@ async def get_quote(symbol: str) -> dict:
     """获取股票/加密货币实时报价（含数据质量标注 data_status）。symbol 形如 ASHARE:600519 / US:AAPL / CRYPTO:BTCUSDT。"""
     market, code = finance.split_symbol(symbol)
     q = await finance.get_adapter(market).get_quote(code)
-    return _enrich_quote(q, market)
+    q = _enrich_quote(q, market)
+    # 跨源价差校验（A股：新浪 vs 东财）——真正调用 data_quality.cross_source_check
+    if market == "ASHARE" and q.get("price"):
+        p2 = await finance.ashare_eastmoney_price(code)
+        if p2 and data_quality.cross_source_check([q["price"], p2]):
+            q["cross_source_divergent"] = True
+            q["second_source_price"] = p2
+            if q.get("data_status") == "fresh":
+                q["data_status"] = "delayed"  # 双源不一致→降级，不再当作完全可信
+    return q
 
 
 @mcp.tool()
