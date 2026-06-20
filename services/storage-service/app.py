@@ -115,6 +115,81 @@ def create_alert(symbol: str, type: str, detail: str = ""):
     return {"id": db.add_alert(DB_PATH, symbol, type, detail)}
 
 
+class WatchlistIn(BaseModel):
+    items: list[dict]
+
+
+# ---------------------------------------------------------------- L0 PIT 面板
+class FundamentalIn(BaseModel):
+    symbol: str
+    period: str
+    field: str
+    value: float | None = None
+    legal_deadline: str | None = None
+    disclosed_date: str | None = None
+    source: str = ""
+    pit_status: str = ""
+
+
+class PanelIn(BaseModel):
+    symbol: str
+    date: str
+    field: str
+    value: float | None = None
+    source: str = ""
+    visible_date: str = ""
+
+
+class MembershipIn(BaseModel):
+    date: str
+    symbol: str
+    weight: float = 0.0
+    index_code: str = "000906"
+    universe_pit_status: str = "today_snapshot_only"
+
+
+@app.post("/pit/fundamental")
+def pit_add_fundamental(f: FundamentalIn):
+    db.add_fundamental(DB_PATH, f.symbol, f.period, f.field, f.value, f.legal_deadline,
+                       f.disclosed_date, f.source, f.pit_status)
+    return {"ok": True}
+
+
+@app.post("/pit/panel")
+def pit_add_panel(p: PanelIn):
+    db.add_panel(DB_PATH, p.symbol, p.date, p.field, p.value, p.source, p.visible_date)
+    return {"ok": True}
+
+
+@app.post("/pit/membership")
+def pit_add_membership(m: MembershipIn):
+    db.add_membership(DB_PATH, m.date, m.symbol, m.weight, m.index_code, m.universe_pit_status)
+    return {"ok": True}
+
+
+@app.get("/pit/universe")
+def pit_universe(date: str, lsy_filter: str = "off"):
+    return db.universe(DB_PATH, date, lsy_filter)
+
+
+@app.get("/pit/asof")
+def pit_asof(symbol: str, field: str, date: str, kind: str = "panel"):
+    r = (db.asof_fundamental(DB_PATH, symbol, field, date) if kind == "fundamental"
+         else db.asof_panel(DB_PATH, symbol, field, date))
+    return r or {"value": None, "abstain_reason": "data_missing"}
+
+
 @app.get("/watchlist")
 def watchlist():
     return db.get_watchlist(DB_PATH)
+
+
+@app.post("/watchlist")
+def watchlist_add(w: WatchlistIn):
+    db.set_watchlist(DB_PATH, w.items)
+    return {"ok": True, "count": len(db.get_watchlist(DB_PATH))}
+
+
+@app.delete("/watchlist/{symbol:path}")
+def watchlist_remove(symbol: str):
+    return {"removed": db.remove_watchlist(DB_PATH, symbol)}

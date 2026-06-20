@@ -18,6 +18,19 @@ import finance
 import data_quality
 import indicators
 import backtest as backtest_lib
+import volatility as volatility_lib
+import anomaly as anomaly_lib
+import crossasset as crossasset_lib
+import seasonality as seasonality_lib
+import news_cluster as news_cluster_lib
+import obs
+import pit_panel
+
+_ASHARE_INDEX = "ASHARE:sh000001"  # 上证指数（跨资产 β 默认基准）
+
+METRICS = obs.Metrics()                 # 按数据源 调用/错误/命中/延迟
+_QUOTE_CACHE = obs.TTLCache()           # 实时报价短 TTL 缓存（降限流风险）
+_QUOTE_TTL = {"ASHARE": 30, "US": 60, "CRYPTO": 15}  # 各市场缓存秒数
 
 HOST = os.getenv("MCP_HOST", "0.0.0.0")
 PORT = int(os.getenv("MCP_PORT", "8002"))
@@ -33,9 +46,7 @@ def _enrich_quote(q, market):
     return q
 
 
-@mcp.tool()
-async def get_quote(symbol: str) -> dict:
-    """获取股票/加密货币实时报价（含数据质量标注 data_status）。symbol 形如 ASHARE:600519 / US:AAPL / CRYPTO:BTCUSDT。"""
+async def _fetch_quote(symbol: str) -> dict:
     market, code = finance.split_symbol(symbol)
     q = await finance.get_adapter(market).get_quote(code)
     q = _enrich_quote(q, market)
@@ -48,6 +59,43 @@ async def get_quote(symbol: str) -> dict:
             if q.get("data_status") == "fresh":
                 q["data_status"] = "delayed"  # 双源不一致→降级，不再当作完全可信
     return q
+
+
+@mcp.tool()
+async def get_universe(date: str, lsy_filter: str = "off") -> dict:
+    """[realtime] 中证800 时点成分(date<=t 最近快照; lsy_filter=on 剔 ST/小票)。多因子选股可投域。"""
+    return await pit_panel.fetch_universe(date, lsy_filter)
+
+
+@mcp.tool()
+async def asof_value(symbol: str, field: str, date: str, kind: str = "panel") -> dict:
+    """[realtime] 防前视时点取值(visible_date/announce_date<=date 最近)。kind∈{panel,fundamental}。"""
+    return await pit_panel.fetch_asof(symbol, field, date, kind)
+
+
+@mcp.tool()
+async def get_quote(symbol: str) -> dict:
+    """获取股票/加密货币实时报价（含数据质量标注 data_status；短 TTL 缓存 + 按源指标）。symbol 形如 ASHARE:600519 / US:AAPL / CRYPTO:BTCUSDT。"""
+    market, _ = finance.split_symbol(symbol)
+    cached = _QUOTE_CACHE.get(symbol)
+    if cached is not None:
+        METRICS.record(market, 0.0, ok=True, hit=True)
+        return cached
+    t0 = time.monotonic()
+    try:
+        q = await _fetch_quote(symbol)
+    except Exception:
+        METRICS.record(market, time.monotonic() - t0, ok=False)
+        raise
+    METRICS.record(q.get("source", market), time.monotonic() - t0, ok=q.get("data_status") != "error")
+    _QUOTE_CACHE.set(symbol, q, _QUOTE_TTL.get(market, 30))
+    return q
+
+
+@mcp.tool()
+async def data_source_metrics() -> dict:
+    """数据源健康：按源的 调用/错误率/缓存命中率/延迟（可观测性 §10）。"""
+    return METRICS.snapshot()
 
 
 @mcp.tool()
@@ -69,9 +117,10 @@ async def get_indicators(symbol: str, period: str = "daily") -> dict:
 
 @mcp.tool()
 async def get_stock_news(symbol: str, limit: int = 8) -> list:
-    """获取个股相关新闻（加密货币暂无稳定新闻源，返回空）。"""
+    """获取个股相关新闻并**跨源去重**（近重复头条折叠为一条，附 corroboration/k 源报道，防伪造共识）。"""
     market, code = finance.split_symbol(symbol)
-    return await finance.get_adapter(market).get_news(code, limit)
+    news = await finance.get_adapter(market).get_news(code, limit)
+    return news_cluster_lib.dedupe_and_enrich(news) if news else news
 
 
 @mcp.tool()
@@ -107,6 +156,45 @@ async def backtest(symbol: str, strategy: str = "ma", short: int = 5, long: int 
     res["sensitivity"] = backtest_lib.param_sensitivity(
         closes, [(short, long), (short + 1, long + 1), (short + 3, long + 10)])
     return res
+
+
+@mcp.tool()
+async def get_volatility(symbol: str, period: str = "daily", window: int = 20) -> dict:
+    """波动状态层：EWMA/Parkinson 已实现波动 + 当前波动在自身历史分布的分位 → 区间(low/normal/elevated/extreme)。"""
+    market, code = finance.split_symbol(symbol)
+    kl = await finance.get_adapter(market).get_kline(code, period, 250)
+    return volatility_lib.vol_state(kl, window=window)
+
+
+@mcp.tool()
+async def detect_anomalies(symbol: str, period: str = "daily") -> dict:
+    """稳健价量异动检测(MAD/Hampel)：区分疑似坏数据 vs 疑似真实事件(放量佐证)。"""
+    market, code = finance.split_symbol(symbol)
+    kl = await finance.get_adapter(market).get_kline(code, period, 250)
+    return anomaly_lib.detect_anomalies(kl)
+
+
+@mcp.tool()
+async def get_market_context(symbol: str, benchmark: str = _ASHARE_INDEX, window: int = 60) -> dict:
+    """跨资产上下文：个股相对基准(benchmark, 形如 ASHARE:sh000001)的 β/相关/R²/相对强弱/下行 β。"""
+    m1, c1 = finance.split_symbol(symbol)
+    m2, c2 = finance.split_symbol(benchmark)
+    stock = await finance.get_adapter(m1).get_kline(c1, "daily", 250)
+    try:
+        bench = await finance.get_adapter(m2).get_kline(c2, "daily", 250)
+    except Exception as e:  # 基准取数失败：返回明确错误而非伪造
+        return {"beta": None, "reason": f"基准行情不可用：{e}", "benchmark": benchmark}
+    res = crossasset_lib.beta_context([r["close"] for r in stock], [r["close"] for r in bench], window)
+    res["benchmark"] = benchmark
+    return res
+
+
+@mcp.tool()
+async def get_seasonality(symbol: str, period: str = "daily") -> dict:
+    """季节性诊断：工作日收益效应 + 置换检验/BH 校正；无显著则诚实报告"与随机一致"。"""
+    market, code = finance.split_symbol(symbol)
+    kl = await finance.get_adapter(market).get_kline(code, period, 250)
+    return seasonality_lib.day_of_week_effect(kl)
 
 
 @mcp.tool()
