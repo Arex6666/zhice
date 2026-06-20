@@ -40,5 +40,5 @@ def test_build_features_short():
 def test_calibrator_abstains_without_model():
     ml = _ml()
     c = ml.SignalCalibrator()
-    out = c.predict([0.1] * 8)
-    assert out["abstain"] is True and out["prob_up"] is None
+    out = c.predict([0.1] * 10)
+    assert out["abstain"] is True and out["prob_big_move"] is None

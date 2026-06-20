@@ -76,3 +76,10 @@ def test_ml_abstain_and_unstable_backtest():
     m = [{"verdict": "中性", "confidence": 0.5, "evidence": [_ev()], "abstain": False}]
     r = g.govern(m, "fresh", {"abstain": True}, False)
     assert any("R4" in x for x in r["report"]) and r["ceiling"] <= 0.6
+
+
+def test_high_volatility_caps_confidence_R7():
+    g = _g()
+    m = [{"verdict": "偏多", "confidence": 0.9, "evidence": [_ev()], "abstain": False}]
+    r = g.govern(m, "fresh", {"abstain": False, "prob_big_move": 0.75}, True)
+    assert r["ceiling"] <= 0.6 and any("R7" in x for x in r["report"])

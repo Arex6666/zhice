@@ -10,7 +10,7 @@
 import numpy as np
 
 FEATURE_NAMES = ["ret_lag1", "ret_lag2", "ret_lag3", "ma5_dev", "ma20_dev",
-                 "rsi14", "volatility", "vol_ratio"]
+                 "rsi14", "volatility", "vol_ratio", "abs_ret_lag1", "vol5_over_vol20"]
 
 
 def _rsi(closes, n=14):
@@ -34,13 +34,17 @@ def build_features(kline):
     rets = np.diff(closes) / closes[:-1]
     ma5 = closes[-5:].mean()
     ma20 = closes[-20:].mean()
+    vol5 = float(np.std(rets[-5:]))
+    vol20 = float(np.std(rets[-20:]))
     feat = [
         rets[-1], rets[-2], rets[-3],
         (closes[-1] - ma5) / ma5,
         (closes[-1] - ma20) / ma20,
         _rsi(closes) / 100.0,
-        float(np.std(rets[-20:])),
+        vol20,
         float(vols[-1] / (vols[-6:-1].mean() or 1)) if len(vols) >= 6 else 1.0,
+        abs(float(rets[-1])),                       # 昨日绝对涨幅（波动聚集的直接信号）
+        vol5 / (vol20 + 1e-9),                       # 短/长期波动比（波动是否正在放大）
     ]
     if any(np.isnan(feat)) or any(np.isinf(feat)):
         return None
@@ -48,15 +52,28 @@ def build_features(kline):
 
 
 def build_dataset(kline):
-    """滚动构造 (X, y)：每个窗口的特征 + 次日涨跌标签（仅用历史，无未来函数）。"""
-    closes = [r["close"] for r in kline]
+    """滚动构造 (X, y)：预测「次日是否为大波动日」(|次日收益| 超过近 60 日 70 分位)。
+
+    为何换成波动目标：短周期"涨跌方向"接近随机(AUC≈0.5)，而**波动具有聚集性**
+    (volatility clustering，GARCH 效应)——今天波动大，明天大概率仍大——这是可学习的。
+    特征仅用截至 T 日数据；阈值用过去窗口，均无未来函数。
+    """
+    closes = np.array([r["close"] for r in kline], dtype=float)
+    if len(closes) < 3:
+        return np.array([]), np.array([])
+    rets = np.diff(closes) / closes[:-1]
+    aret = np.abs(rets)
     X, y = [], []
     for i in range(21, len(kline) - 1):
         f = build_features(kline[:i + 1])
         if f is None:
             continue
+        window = aret[max(0, i - 60):i]  # 仅过去窗口
+        if len(window) < 20:
+            continue
+        thr = float(np.quantile(window, 0.7))
         X.append(f)
-        y.append(1 if closes[i + 1] > closes[i] else 0)
+        y.append(1 if aret[i] > thr else 0)  # aret[i]=|ret(i->i+1)|，相对 day i 为"次日"
     return np.array(X), np.array(y)
 
 
@@ -119,10 +136,11 @@ class SignalCalibrator:
             return cls(reason="模型文件缺失")
 
     def predict(self, features):
+        """返回 prob_big_move：次日为"大波动日"的校准概率（非涨跌方向）。"""
         if self.model is None or self.abstain_default or features is None:
-            return {"prob_up": None, "abstain": True,
+            return {"prob_big_move": None, "abstain": True,
                     "abstain_reason": self.reason or "模型弃权",
                     "auc": self.auc, "feature_importance": self.importance}
         prob = float(self.model.predict_proba([features])[0][1])
-        return {"prob_up": prob, "abstain": False, "abstain_reason": None,
+        return {"prob_big_move": prob, "abstain": False, "abstain_reason": None,
                 "auc": self.auc, "feature_importance": self.importance}

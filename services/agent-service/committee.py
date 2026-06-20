@@ -78,18 +78,22 @@ async def _member(llm, model, lens_name, lens_sys, data_blob):
 
 
 def _ml_member(ml):
+    """XGBoost 风险信号委员（非方向）：预测次日"大波动"概率，用于校准不确定性。"""
     if not ml or ml.get("abstain"):
         return None
-    p = ml.get("prob_up")
+    p = ml.get("prob_big_move")
     if not isinstance(p, (int, float)):  # 非弃权但概率缺失/非数值 → 视同弃权，避免崩溃
         return None
-    verdict = "偏多" if p > 0.55 else ("偏空" if p < 0.45 else "中性")
-    return {"lens": "XGBoost信号校准器", "verdict": verdict, "confidence": abs((p or 0.5) - 0.5) * 2,
-            "reasons": [f"历史相似形态 T+1 上涨概率≈{p:.0%}" if p else "弱信号"],
+    level = "高" if p > 0.6 else ("中" if p > 0.4 else "低")
+    return {"lens": "XGBoost风险信号(波动)", "verdict": "中性", "confidence": 0.0,
+            "reasons": [f"模型预测次日大波动概率≈{p:.0%}(样本外 AUC={ml.get('auc')})，属{level}风险；"
+                        "仅校准不确定性、不指示涨跌方向"],
             "evidence": [{"type": "backtest", "source": "ml_signal",
-                          "value": f"prob_up={p:.2f}, AUC={ml.get('auc')}", "interpretation": "弱统计信号"}],
-            "counter_evidence": ["短周期方向接近随机，模型为弱信号、易过拟合"],
-            "risks": ["模型不保证未来"], "abstain": False, "abstain_reason": None}
+                          "value": f"prob_big_move={p:.2f}, AUC={ml.get('auc')}",
+                          "interpretation": f"{level}波动风险"}],
+            "counter_evidence": ["波动预测不指示方向；模型为统计弱信号"],
+            "risks": ["高波动期方向更难判定，应降低置信度"],
+            "abstain": False, "abstain_reason": None, "risk_prob": p}
 
 
 async def run_committee(symbol, gather_fn, llm, model, ml=None):

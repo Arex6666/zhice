@@ -500,13 +500,15 @@ def sec_finance():
     h2("7.4 运行实证（实测）")
     para("端到端冒烟测试（对运行中的 5 服务栈）：", indent=True)
     code_block(read("报告/artifacts/smoke_finance.txt"))
-    para("XGBoost 校准器离线训练实测（可复现产物）：", indent=True)
+    para("XGBoost 风险信号离线训练实测（可复现产物）：", indent=True)
     code_block(read("报告/artifacts/ml_train.txt"))
-    para("诚实说明：XGBoost 校准器在 8 只 A股、1824 个样本上**样本外 AUC≈0.51**（无 T+1 统计优势），按设计"
-         "**自动弃权**，由治理引擎 R4 将其从委员会票中剔除——这正是“弃权感知”的真实演示。加密货币因 Binance "
-         "在本网络环境返回 451 被封禁，自动回退 CoinGecko 获取；美股(yfinance/Yahoo)在本网络环境不可达，被标注为"
-         "**最严重的 data_status=error**，系统据此**优雅降级**（不崩溃、对用户显式提示该市场不可用），而非把陈旧/缺失数据当作可信。",
-         indent=True)
+    para("关于 ML 信号的诚实演进：起初让 XGBoost 预测 T+1 涨跌**方向**，样本外 AUC≈0.51（≈随机，无统计优势）"
+         "——这是金融的客观规律（有效市场/随机游走）。据此把模型**重定向为预测“次日是否为大波动日”**"
+         "（波动具聚集性 / GARCH 效应，是可学习的），样本外 **AUC≈0.556（高于随机基准 0.5）**，成为一个真正"
+         "**有效的弱信号**。它作为**风险校准票**（非方向）参与委员会：当预测高波动时，治理规则 **R7** 据此"
+         "下调整体置信度；若样本不足或无统计优势则按 R4 自动弃权。加密货币因 Binance 在本网络环境返回 451 被封禁，"
+         "自动回退 CoinGecko；美股(Yahoo)不可达被标注为**最严重的 data_status=error** 并优雅降级（不崩溃、"
+         "显式提示不可用），而非把缺失数据当可信。", indent=True)
 
     h2("7.5 结果展示")
     image("报告/screenshots/07_finance_chart.png", width=6.4,

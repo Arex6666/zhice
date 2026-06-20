@@ -64,6 +64,12 @@ def govern(members, data_status, ml, backtest_stable):
     if not backtest_stable:
         ceiling = min(ceiling, 0.6)
         report.append("R5: 回测参数敏感性不稳→置信度≤0.6")
+    # R7：模型预警高波动 → 不确定性高 → 封顶置信度（波动信号是可学习、有效的）
+    if ml is not None and not ml.get("abstain"):
+        pbm = ml.get("prob_big_move")
+        if isinstance(pbm, (int, float)) and pbm > 0.6:
+            ceiling = min(ceiling, 0.6)
+            report.append(f"R7: 模型预警次日高波动({pbm:.0%})→不确定性升高、置信度≤0.6")
 
     # —— 主席方向的允许集合：治理对"方向"生效，杜绝无据强结论 ——
     if not actives:

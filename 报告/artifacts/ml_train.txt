@@ -7,5 +7,5 @@
   002594: 228 samples
   300750: 228 samples
 总样本: 1824
-AUC=0.5089261744966443  abstain=True  reason=AUC≈0.5(无统计优势)
+AUC=0.556328320802005  abstain=False  reason=None
 saved D:\微服务架构2\services\agent-service\models\signal_ASHARE.pkl

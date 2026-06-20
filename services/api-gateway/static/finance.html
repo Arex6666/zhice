@@ -746,16 +746,18 @@ function renderDeep(data){
     + '</div></div>';
   html += '</div></div></section>';
 
-  /* ---- 4. ML calibrator ticket ---- */
-  html += '<section><div class="sec-title">ML · XGBoost 校准器票 <span class="cn">弱统计信号（一票）</span></div><div class="card"><div class="ml-ticket">';
-  const abst = ml.abstain || ml.prob_up == null;
-  html += '<div class="stub"><div class="k">T+1 上涨概率</div><div class="v'+(abst?' abst':'')+'">'
-    + (abst ? '弃权' : pct(ml.prob_up)) + '</div></div>';
-  html += '<div class="stub"><div class="k">AUC</div><div class="v'+(ml.auc==null?' abst':'')+'">'
+  /* ---- 4. ML risk-calibration ticket (波动信号) ---- */
+  html += '<section><div class="sec-title">ML · XGBoost 风险信号 <span class="cn">次日波动预测（校准不确定性）</span></div><div class="card"><div class="ml-ticket">';
+  const pbm = ml.prob_big_move;
+  const abst = ml.abstain || pbm == null;
+  const lvl = pbm == null ? '' : (pbm > 0.6 ? '高' : (pbm > 0.4 ? '中' : '低'));
+  html += '<div class="stub"><div class="k">次日大波动概率</div><div class="v'+(abst?' abst':'')+'">'
+    + (abst ? '弃权' : (pct(pbm) + (lvl ? ' · '+lvl+'风险' : ''))) + '</div></div>';
+  html += '<div class="stub"><div class="k">样本外 AUC</div><div class="v'+(ml.auc==null?' abst':'')+'">'
     + (ml.auc==null?'—':fmt(ml.auc,3)) + '</div></div>';
   html += '<div class="note">'
-    + (abst ? ('该票<b style="color:var(--amber)"> 已弃权</b>'+ (ml.abstain_reason ? '：'+esc(ml.abstain_reason) : '（AUC≈0.5 或样本不足）') + '。治理规则 R4 会将其从委员会票中剔除。')
-            : '历史相似形态下 T+1 上涨概率，作为<b>弱信号一票</b>参与委员会；短周期方向接近随机游走，模型不保证未来、易过拟合。')
+    + (abst ? ('该票<b style="color:var(--amber)"> 已弃权</b>'+ (ml.abstain_reason ? '：'+esc(ml.abstain_reason) : '（AUC≈0.5 或样本不足）') + '。治理规则 R4 会将其剔除。')
+            : '模型预测<b>次日是否为大波动日</b>（波动具聚集性、可学习），用于<b>校准不确定性</b>而非指示方向；高波动 → 治理规则 R7 下调整体置信度。')
     + '</div>';
   html += '</div></div></section>';
 

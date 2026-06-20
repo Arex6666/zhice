@@ -86,7 +86,8 @@ def test_committee_includes_ml_vote():
         return {"indicators": {}, "signals": {}, "news": [], "backtest": {},
                 "market": {}, "data_status": "fresh", "backtest_stable": True}
 
-    ml = {"prob_up": 0.7, "abstain": False, "auc": 0.62}
+    ml = {"prob_big_move": 0.7, "abstain": False, "auc": 0.62}
     out = asyncio.run(com.run_committee("US:AAPL", gather, llm, "m", ml=ml))
     lenses = [m["lens"] for m in out["members"]]
-    assert "XGBoost信号校准器" in lenses  # 5th vote present
+    assert "XGBoost风险信号(波动)" in lenses  # 风险信号票 present
+    assert out["confidence"] <= 0.6  # R7: 高波动预警→封顶
