@@ -41,3 +41,6 @@ _antiword_err.txt
 
 # model binaries
 *.pkl
+
+# Word temp lock
+报告/~$*
