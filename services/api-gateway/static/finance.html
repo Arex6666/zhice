@@ -401,7 +401,7 @@ function verdictClass(v){ return v==='偏多' ? 'v-long' : v==='偏空' ? 'v-sho
 
 /* ---------------- state ---------------- */
 let MODE = 'quick';
-let chartMain = null, chartOsc = null;
+let chartMain = null, chartOsc = null, btChart = null;
 const hasECharts = (typeof echarts !== 'undefined');
 
 /* ---------------- mode buttons ---------------- */
@@ -705,7 +705,9 @@ function renderDeep(data){
 
   /* ---- conflict banner ---- */
   if (data.conflict){
-    html += '<section><div class="notice"><b>⚠ 委员意见冲突</b> — 存在偏多/偏空对立，治理引擎已据此压低置信度天花板（≤0.55）并强制暴露分歧。</div></section>';
+    const di = (typeof data.disagreement === 'number') ? data.disagreement : null;
+    html += '<section><div class="notice"><b>⚠ 委员意见冲突</b> — 存在偏多/偏空对立，治理引擎按<b>分歧指数'
+      + (di != null ? ' ' + di : '') + '</b>（0=一致，1=势均力敌）梯度压低置信度天花板并强制暴露分歧。</div></section>';
   }
 
   /* ---- 1. committee ---- */
@@ -735,7 +737,7 @@ function renderDeep(data){
   html += ceBlock('risk', '最大风险', 'MAX RISK', chair.max_risk);
   html += ceBlock('reason', '置信度解释', 'CONFIDENCE REASON', chair.confidence_reason);
   // governance log spans full width
-  html += '<div class="ce-block full"><div class="k"><span class="cn">治理记录</span> GOVERNANCE REPORT · R1–R6</div>'
+  html += '<div class="ce-block full"><div class="k"><span class="cn">治理记录</span> GOVERNANCE REPORT · R1–R9</div>'
     + '<div class="govlog">' + (gov.length
         ? gov.map((g,i) => '<div class="ln"><span class="idx">'+String(i+1).padStart(2,'0')+'</span><span class="rule">'+esc(g)+'</span></div>').join('')
         : '<div class="empty">无规则触发 — 证据充分、数据新鲜、无冲突。置信度天花板维持默认 0.85。</div>')
@@ -761,7 +763,44 @@ function renderDeep(data){
     + '</div>';
   html += '</div></div></section>';
 
+  /* ---- 5. trustworthy backtest (净值曲线 + 显著性) ---- */
+  const bt = data.backtest;
+  const hasBt = bt && Array.isArray(bt.equity_curve) && bt.equity_curve.length >= 2 && !bt.error;
+  if (hasBt){
+    const sig = bt.significance || {};
+    const sigTxt = sig.significant === true ? ('显著 (p='+sig.p_value+')')
+                 : sig.significant === false ? ('不显著 (p='+sig.p_value+'，恐为运气)')
+                 : '样本不足';
+    html += '<section><div class="sec-title">Backtest · 可信回测 <span class="cn">双均线净值 vs 买入持有 · 块自助显著性</span></div>'
+      + '<div class="card"><div class="review-stats">'
+      + '<div class="stat"><div class="k">策略收益</div><div class="v">'+pct(bt.total_return)+'</div></div>'
+      + '<div class="stat"><div class="k">买入持有</div><div class="v">'+pct(bt.benchmark_return)+'</div></div>'
+      + '<div class="stat"><div class="k">最大回撤</div><div class="v">'+pct(bt.max_drawdown)+'</div></div>'
+      + '<div class="stat"><div class="k">夏普</div><div class="v">'+fmt(bt.sharpe,2)+'</div></div>'
+      + '<div class="stat"><div class="k">边际显著性</div><div class="v'+(sig.significant===false?' warn':'')+'">'+esc(sigTxt)+'</div></div>'
+      + '</div><div id="bt-chart" style="height:240px;margin-top:12px"></div>'
+      + '<div class="chart-note">'+esc(bt.disclaimer||'')+'</div></div></section>';
+  }
+
   A.innerHTML = html;
+  if (hasBt){
+    try {
+      if (btChart){ btChart.dispose(); btChart = null; }
+      btChart = echarts.init($('bt-chart'), null, { renderer:'canvas' });
+      const eq = bt.equity_curve, bench = bt.benchmark_curve || [];
+      btChart.setOption({
+        grid:{ left:46, right:16, top:26, bottom:22 },
+        tooltip:{ trigger:'axis' },
+        legend:{ data:['策略净值','买入持有'], top:0, textStyle:{ fontSize:11 } },
+        xAxis:{ type:'category', data:eq.map((_,i)=>i), axisLabel:{ show:false } },
+        yAxis:{ type:'value', scale:true },
+        series:[
+          { name:'策略净值', type:'line', data:eq, smooth:true, showSymbol:false, lineStyle:{ width:2 } },
+          { name:'买入持有', type:'line', data:bench, smooth:true, showSymbol:false, lineStyle:{ width:1, type:'dashed' } }
+        ]
+      });
+    } catch(e){ /* 图表失败不影响其余面板 */ }
+  }
   if (data.disclaimer) $('footDisc').textContent = data.disclaimer;
 }
 
@@ -880,6 +919,26 @@ function renderReview(data){
           return '<div class="row"><span>'+esc(k)+'</span><span>'+esc(disp)+'</span></div>';
         }).join('')
       + '</div>';
+  }
+  // calibration (Brier / ECE / 可靠性分箱) —— 把"主席是否过度自信"做成可对角线验证的事实
+  const cal = r.calibration;
+  if (cal){
+    const vWarn = (cal.verdict === '过度自信') ? ' warn' : '';
+    html += '<div class="review-stats" style="margin-top:14px">'
+      + '<div class="stat"><div class="k">Brier</div><div class="v">'+cal.brier+'</div></div>'
+      + '<div class="stat"><div class="k">ECE</div><div class="v">'+cal.ece+'</div></div>'
+      + '<div class="stat"><div class="k">校准判定</div><div class="v'+vWarn+'">'+esc(cal.verdict)+'</div></div>'
+      + '</div>';
+    const rel = cal.reliability || [];
+    if (rel.length){
+      html += '<div class="bymem"><div class="ev-title">可靠性分箱（预测置信度 vs 实际命中；命中显著低于置信=过度自信）</div>'
+        + rel.map(b => {
+            const off = (b.accuracy < b.avg_conf - 0.1);
+            return '<div class="row"><span>置信≈'+pct(b.avg_conf)+'（n='+b.n+'）</span>'
+              + '<span'+(off?' style="color:var(--amber)"':'')+'>实际命中 '+pct(b.accuracy)+'</span></div>';
+          }).join('')
+        + '</div>';
+    }
   }
   html += '<div class="review-note'+(over?' warn':'')+'">'+esc(r.note || '暂无复盘记录。')+'</div>';
   html += '</div></section>';

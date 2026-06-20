@@ -19,6 +19,7 @@ STORAGE_URL = os.getenv("STORAGE_URL", "http://storage-service:8003").rstrip("/"
 QUOTE_INTERVAL_SEC = int(os.getenv("QUOTE_INTERVAL_SEC", "300"))
 REVIEW_INTERVAL_SEC = int(os.getenv("REVIEW_INTERVAL_SEC", "3600"))
 ALERT_INTERVAL_SEC = int(os.getenv("ALERT_INTERVAL_SEC", "600"))
+NEWS_INTERVAL_SEC = int(os.getenv("NEWS_INTERVAL_SEC", "1800"))
 ALERT_CHANGE_PCT = float(os.getenv("ALERT_CHANGE_PCT", "5.0"))
 
 # (symbol, 交易日) 去重集合，避免同一标的当日重复告警造成"告警风暴"
@@ -37,6 +38,7 @@ _HTTP_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 quotes_collected = 0
 alerts_raised = 0
 review_filled = 0
+news_collected = 0
 failures = 0
 last_run_ts = ""  # 字符串；用 time.time() 生成，避免 datetime.now() 序列化坑
 
@@ -49,6 +51,7 @@ def get_status() -> dict:
         "quotes_collected": quotes_collected,
         "alerts_raised": alerts_raised,
         "review_filled": review_filled,
+        "news_collected": news_collected,
         "failures": failures,
         "last_run_ts": last_run_ts,
         "running": _scheduler.running if _scheduler else False,
@@ -120,7 +123,8 @@ async def pull_quotes():
                     "price": quote["price"],
                     "change_pct": quote["change_pct"],
                     "ts": str(quote["ts"]),
-                    "data_status": "fresh",
+                    # 依据行情真实时间判定（datafetch.fetch_quote 已算好），不再硬编码 fresh
+                    "data_status": quote.get("data_status", "delayed"),
                     "source": quote["source"],
                 }
                 resp = await client.post(f"{STORAGE_URL}/quotes", json=payload)
@@ -185,6 +189,29 @@ async def fill_reviews():
                 failures += 1
 
 
+async def pull_news():
+    """周期性拉取自选股新闻、词典情绪富化后写入 storage（填补此前空置的 news 表）。"""
+    global news_collected, failures
+    _touch()
+    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+        watchlist = await _get_watchlist(client)
+        for item in watchlist:
+            symbol = item.get("symbol")
+            if not symbol or not _is_ashare(item):
+                continue
+            try:
+                for n in await datafetch.fetch_news(symbol):
+                    payload = {"symbol": symbol, "title": n.get("title", ""),
+                               "url": n.get("url", ""), "source": n.get("source", "eastmoney"),
+                               "ts": n.get("ts", ""), "sentiment": n.get("sentiment", ""),
+                               "summary": n.get("summary", "")}
+                    resp = await client.post(f"{STORAGE_URL}/news", json=payload)
+                    resp.raise_for_status()
+                    news_collected += 1
+            except Exception:  # noqa: BLE001 - 单标的新闻失败隔离
+                failures += 1
+
+
 async def scan_alerts():
     """扫描 watchlist，单日涨跌幅 >=阈值 则上报 big_move 告警（交易时段 + 按日去重，防告警风暴）。"""
     global alerts_raised, failures
@@ -243,6 +270,8 @@ def start() -> AsyncIOScheduler:
                   id="fill_reviews", max_instances=1, coalesce=True)
     sched.add_job(scan_alerts, "interval", seconds=ALERT_INTERVAL_SEC,
                   id="scan_alerts", max_instances=1, coalesce=True)
+    sched.add_job(pull_news, "interval", seconds=NEWS_INTERVAL_SEC,
+                  id="pull_news", max_instances=1, coalesce=True)
     sched.start()
     _scheduler = sched
     return sched

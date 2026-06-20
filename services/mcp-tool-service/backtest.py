@@ -8,6 +8,15 @@ import pandas as pd
 DISC = "历史回测含手续费/滑点，仍不可直接外推到未来（存在过拟合/幸存者偏差/未来函数风险）。"
 
 
+def _downsample(arr, k=120):
+    """把曲线降采样到至多 k 个点，便于前端绘制（保留首尾趋势）。"""
+    a = list(arr)
+    if len(a) <= k:
+        return [round(float(x), 4) for x in a]
+    step = len(a) / k
+    return [round(float(a[min(len(a) - 1, int(i * step))]), 4) for i in range(k)]
+
+
 def _signals(c, sh, ln):
     s = pd.Series(c)
     ms = s.rolling(sh).mean()
@@ -55,9 +64,47 @@ def backtest_ma(closes, short, long, fee_bps=5, slippage_bps=5):
             mcl = max(mcl, cur)
         elif x > 0:
             cur = 0
+    bench_curve = c[1:] / c[0]  # 买入持有净值，与 strat 等长(n)
     return {"total_return": total, "annualized": ann, "benchmark_return": bench,
             "max_drawdown": dd, "sharpe": sharpe, "win_rate": wr,
-            "max_consec_loss": int(mcl), "trades": ntr, "disclaimer": DISC}
+            "max_consec_loss": int(mcl), "trades": ntr,
+            "equity_curve": _downsample(eq), "benchmark_curve": _downsample(bench_curve),
+            "significance": bootstrap_significance(strat), "disclaimer": DISC}
+
+
+def bootstrap_significance(returns, n_boot=1000, seed=42, alpha=0.05):
+    """平稳(循环)块自助检验：策略日收益的均值是否显著为正，还是仅是运气。
+
+    - 块长取 ~√n（保留短期自相关，避免独立同分布假设高估显著性）。
+    - CI：直接对收益重采样的均值分位。
+    - p 值：零假设居中(减去观测均值)后，自助均值达到观测均值的单侧概率。
+    返回 significant=None 表示样本不足、无法判定（诚实弃权，不冒充结论）。
+    """
+    r = np.asarray([x for x in returns if x is not None], dtype=float)
+    n = len(r)
+    if n < 20:
+        return {"significant": None, "reason": "样本不足(<20)", "n": int(n)}
+    block = max(2, int(round(np.sqrt(n))))
+    n_blocks = int(np.ceil(n / block))
+    obs_mean = float(r.mean())
+    rng = np.random.RandomState(seed)
+    means = np.empty(n_boot)
+    for b in range(n_boot):
+        starts = rng.randint(0, n, size=n_blocks)
+        idx = np.concatenate([(s + np.arange(block)) % n for s in starts])[:n]
+        means[b] = r[idx].mean()
+    ci_low = float(np.quantile(means, alpha / 2))
+    ci_high = float(np.quantile(means, 1 - alpha / 2))
+    # 零假设居中：null 下均值为 0；观测越极端 p 越小（单侧，方向取观测符号）
+    centered = means - obs_mean
+    if obs_mean >= 0:
+        p_value = float(np.mean(centered >= obs_mean))
+    else:
+        p_value = float(np.mean(centered <= obs_mean))
+    significant = bool(p_value < alpha and (ci_low > 0 or ci_high < 0))
+    return {"significant": significant, "p_value": round(p_value, 4),
+            "mean_return": obs_mean, "ci_low": ci_low, "ci_high": ci_high,
+            "block_len": block, "n": int(n), "n_boot": n_boot}
 
 
 def param_sensitivity(closes, grid):

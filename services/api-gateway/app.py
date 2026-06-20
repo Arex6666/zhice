@@ -56,6 +56,26 @@ async def finance_analyze(req: Request):
         return JSONResponse(_safe_json(r), status_code=r.status_code)
 
 
+@app.api_route("/api/watchlist", methods=["GET", "POST"])
+async def watchlist_proxy(req: Request):
+    """自选股读写转发到 storage（仪表盘组合管理用）。"""
+    _metrics["requests"] += 1
+    async with httpx.AsyncClient(timeout=20) as c:
+        if req.method == "POST":
+            r = await c.post(f"{STORAGE_URL}/watchlist", json=await req.json())
+        else:
+            r = await c.get(f"{STORAGE_URL}/watchlist")
+        return JSONResponse(_safe_json(r), status_code=r.status_code)
+
+
+@app.delete("/api/watchlist/{symbol:path}")
+async def watchlist_delete_proxy(symbol: str):
+    _metrics["requests"] += 1
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.delete(f"{STORAGE_URL}/watchlist/{symbol}")
+        return JSONResponse(_safe_json(r), status_code=r.status_code)
+
+
 @app.get("/api/status")
 async def status():
     out = {"gateway": "ok"}

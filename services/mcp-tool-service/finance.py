@@ -5,12 +5,24 @@
 同步库（akshare/yfinance）通过 anyio.to_thread 卸载，避免阻塞事件循环。
 """
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import anyio
 import httpx
 
 SINA_HEADERS = {"Referer": "https://finance.sina.com.cn", "User-Agent": "Mozilla/5.0"}
 UA = {"User-Agent": "Mozilla/5.0"}
+_SHANGHAI = ZoneInfo("Asia/Shanghai")
+
+
+def _sina_ts(date_s, time_s):
+    """把 sina 行情里的日期/时间(上海时区)解析为 epoch 秒；缺失/非法返回 None。"""
+    try:
+        dt = datetime.strptime(f"{date_s} {time_s}", "%Y-%m-%d %H:%M:%S")
+        return dt.replace(tzinfo=_SHANGHAI).timestamp()
+    except (ValueError, TypeError):
+        return None
 
 
 async def aget(client, url, retries=3, **kw):
@@ -44,9 +56,31 @@ def parse_sina_quote(text):
         except (IndexError, ValueError):
             return None
 
+    # 真实成交时间在 下标30(日期)/31(时间)；缺失时回退当前时间（精简载荷/异常）。
+    date_s = f[30] if len(f) > 30 else None
+    time_s = f[31] if len(f) > 31 else None
+    ts = _sina_ts(date_s, time_s) or time.time()
     return {"name": f[0] if f else "", "open": num(1), "prev_close": num(2),
             "price": num(3), "high": num(4), "low": num(5),
-            "volume": num(8), "ts": time.time(), "source": "sina"}
+            "volume": num(8), "ts": ts, "source": "sina"}
+
+
+def _em_kline_rows(klines, adjust):
+    """东方财富 K 线行 -> 标准 OHLCV dict，并标注实际复权口径 adjust_actual。"""
+    out = []
+    for s in klines:  # 日期,开,收,高,低,成交量,...
+        p = s.split(",")
+        out.append({"ts": p[0], "open": float(p[1]), "close": float(p[2]),
+                    "high": float(p[3]), "low": float(p[4]), "volume": float(p[5]),
+                    "adjust_actual": adjust})
+    return out
+
+
+def _sina_kline_rows(data):
+    """新浪 K 线 -> 标准 OHLCV dict；新浪为**不复权**数据，标注 adjust_actual='none'。"""
+    return [{"ts": d["day"], "open": float(d["open"]), "high": float(d["high"]),
+             "low": float(d["low"]), "close": float(d["close"]),
+             "volume": float(d["volume"]), "adjust_actual": "none"} for d in data]
 
 
 def _ashare_sina_code(code):
@@ -91,11 +125,7 @@ class AshareAdapter(MarketAdapter):
         async with httpx.AsyncClient(timeout=12, headers=UA) as c:
             r = await aget(c, "https://push2his.eastmoney.com/api/qt/stock/kline/get", params=params)
             klines = (r.json().get("data") or {}).get("klines") or []
-        out = []
-        for s in klines:  # 日期,开,收,高,低,成交量,...
-            p = s.split(",")
-            out.append({"ts": p[0], "open": float(p[1]), "close": float(p[2]),
-                        "high": float(p[3]), "low": float(p[4]), "volume": float(p[5])})
+        out = _em_kline_rows(klines, adjust)
         if not out:
             raise ValueError("eastmoney empty")
         return out
@@ -107,9 +137,7 @@ class AshareAdapter(MarketAdapter):
         async with httpx.AsyncClient(timeout=12, headers=SINA_HEADERS) as c:
             r = await aget(c, url)
             data = r.json()
-        return [{"ts": d["day"], "open": float(d["open"]), "high": float(d["high"]),
-                 "low": float(d["low"]), "close": float(d["close"]),
-                 "volume": float(d["volume"])} for d in data]
+        return _sina_kline_rows(data)
 
     async def get_news(self, code, limit=8):
         # 新闻非关键路径：akshare 失败时优雅返回空（委员会会据此弃权情绪票）
