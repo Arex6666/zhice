@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
-**Goal:** Extend the 智阅 platform into 智策 — a trustworthy/explainable/auditable multi-agent financial analysis system (A股+美股+crypto, data-quality layer, evidence-governance engine, evidence-based LLM committee + XGBoost calibrator, credible backtest, self-audit, dashboard).
+**Goal:** Build 智策 (ZhiCe) on an MCP agent microservice architecture — a trustworthy/explainable/auditable multi-agent financial analysis system (A股+美股+crypto, data-quality layer, evidence-governance engine, evidence-based LLM committee + XGBoost calibrator, credible backtest, self-audit, dashboard).
 
-**Architecture:** Add finance to the existing 4 services + 1 new `ingestion-service`. Pure-logic modules (indicators/backtest/data_quality/governance/ml_signal) are network-free and unit-tested; adapters do I/O; the committee orchestrates LLM members → governance engine → chairman. Everything stays MCP-first and Dockerized.
+**Architecture:** 5 microservices (api-gateway, agent-service, mcp-tool-service, storage-service, ingestion-service). Pure-logic modules (indicators/backtest/data_quality/governance/ml_signal) are network-free and unit-tested; adapters do I/O; the committee orchestrates LLM members → governance engine → chairman. Everything stays MCP-first and Dockerized.
 
 **Tech Stack:** Python 3.11, FastAPI, FastMCP, openai(AsyncOpenAI/DeepSeek), akshare, yfinance, pandas, numpy, xgboost, scikit-learn, APScheduler, httpx, SQLite, ECharts(vendored), pytest.
 

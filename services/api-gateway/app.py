@@ -1,7 +1,7 @@
-"""api-gateway: 系统唯一入口。
+"""api-gateway: 智策金融平台的唯一入口。
 
-职责：托管 Web 聊天界面；把 /api/chat 转发到 agent-service；把 /api/documents
-转发到 storage-service（历史浏览）；提供 /health 与 /metrics。
+职责：托管金融仪表盘（finance.html）；把 /api/finance/* 转发到 agent-service；
+聚合各服务健康状态于 /api/status；提供 /health 与 /metrics。
 """
 import os
 
@@ -15,8 +15,8 @@ STORAGE_URL = os.getenv("STORAGE_URL", "http://storage-service:8003")
 INGESTION_URL = os.getenv("INGESTION_URL", "http://ingestion-service:8004")
 HERE = os.path.dirname(__file__)
 
-app = FastAPI(title="zhiyue-api-gateway")
-_metrics = {"requests": 0, "chat": 0}
+app = FastAPI(title="zhice-api-gateway")
+_metrics = {"requests": 0, "finance": 0}
 
 
 @app.get("/health")
@@ -38,24 +38,6 @@ def _safe_json(r):
                 "status": r.status_code, "body": r.text[:500]}
 
 
-@app.post("/api/chat")
-async def chat(req: Request):
-    _metrics["requests"] += 1
-    _metrics["chat"] += 1
-    body = await req.json()
-    async with httpx.AsyncClient(timeout=120) as c:
-        r = await c.post(f"{AGENT_URL}/chat", json=body)
-        return JSONResponse(_safe_json(r), status_code=r.status_code)
-
-
-@app.get("/api/documents")
-async def documents(q: str = "", limit: int = 10):
-    _metrics["requests"] += 1
-    async with httpx.AsyncClient(timeout=30) as c:
-        r = await c.get(f"{STORAGE_URL}/documents", params={"q": q, "limit": limit})
-        return JSONResponse(_safe_json(r), status_code=r.status_code)
-
-
 @app.get("/api/finance/{path:path}")
 async def finance_get(path: str, request: Request):
     _metrics["requests"] += 1
@@ -67,6 +49,7 @@ async def finance_get(path: str, request: Request):
 @app.post("/api/finance/analyze")
 async def finance_analyze(req: Request):
     _metrics["requests"] += 1
+    _metrics["finance"] += 1
     body = await req.json()
     async with httpx.AsyncClient(timeout=180) as c:
         r = await c.post(f"{AGENT_URL}/finance/analyze", json=body)
@@ -95,7 +78,7 @@ async def status():
 @app.get("/")
 @app.get("/finance")
 def index():
-    # 金融仪表盘为唯一首页（原智阅聊天页已下线）
+    # 金融仪表盘为唯一首页
     return FileResponse(os.path.join(HERE, "static", "finance.html"))
 
 

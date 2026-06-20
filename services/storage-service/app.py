@@ -1,12 +1,12 @@
-"""storage-service: 文档持久化与检索 API (FastAPI + SQLite)。
+"""storage-service: 智策金融数据持久化 API (FastAPI + SQLite)。
 
-对外提供 REST 接口；被 mcp-tool-service 的 save_document / search_documents
-工具调用，也被 api-gateway 的"历史浏览"面板只读查询。
+对外提供 REST 接口：行情(/quotes)、新闻(/news)、研判与复盘(/analysis*)、
+异动告警(/alerts)、自选股(/watchlist)；被 agent-service / ingestion-service 调用。
 """
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from pydantic import BaseModel
 
 import db
@@ -21,43 +21,12 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="zhiyue-storage-service", lifespan=lifespan)
-
-
-class DocIn(BaseModel):
-    url: str
-    title: str = ""
-    content: str = ""
+app = FastAPI(title="zhice-storage-service", lifespan=lifespan)
 
 
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "storage-service"}
-
-
-@app.post("/documents")
-def create(doc: DocIn):
-    rid = db.add_document(DB_PATH, doc.url, doc.title, doc.content)
-    return db.get_document(DB_PATH, rid)
-
-
-@app.get("/documents")
-def search(q: str = "", limit: int = 5):
-    limit = max(1, min(limit, 100))  # 防御性夹取，避免超大查询
-    return db.search_documents(DB_PATH, q, limit)
-
-
-@app.get("/documents/{doc_id}")
-def get_one(doc_id: int):
-    d = db.get_document(DB_PATH, doc_id)
-    if not d:
-        raise HTTPException(404, "not found")
-    return d
-
-
-@app.get("/stats")
-def stats():
-    return db.stats(DB_PATH)
 
 
 # ---------------------------------------------------------------- finance

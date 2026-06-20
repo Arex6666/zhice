@@ -8,14 +8,14 @@ REGISTRY="${1:?需要 registry，如 registry.cn-hangzhou.aliyuncs.com}"
 NS="${2:?需要命名空间 namespace}"
 TAG="${3:-latest}"
 
-SVCS="storage-service mcp-tool-service agent-service api-gateway"
+SVCS="storage-service mcp-tool-service agent-service ingestion-service api-gateway"
 
 echo ">> 登录阿里云镜像仓库：$REGISTRY"
 docker login "$REGISTRY"
 
 for s in $SVCS; do
-  echo ">> 推送 zhiyue/$s -> $REGISTRY/$NS/$s:$TAG"
-  docker tag "zhiyue/$s:latest" "$REGISTRY/$NS/$s:$TAG"
+  echo ">> 推送 zhice/$s -> $REGISTRY/$NS/$s:$TAG"
+  docker tag "zhice/$s:latest" "$REGISTRY/$NS/$s:$TAG"
   docker push "$REGISTRY/$NS/$s:$TAG"
 done
 

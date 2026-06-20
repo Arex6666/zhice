@@ -924,7 +924,7 @@ async function openStatus(){
   }).join('');
   const m = s.metrics || {};
   html += '<div class="mc">metrics &nbsp; requests='+esc(m.requests==null?'—':m.requests)
-    + ' · chat='+esc(m.chat==null?'—':m.chat)+'</div>';
+    + ' · finance='+esc(m.finance==null?'—':m.finance)+'</div>';
   body.innerHTML = html;
 }
 $('statusModal').addEventListener('click', e => { if (e.target.id === 'statusModal') e.currentTarget.classList.remove('open'); });

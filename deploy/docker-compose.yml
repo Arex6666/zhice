@@ -1,4 +1,4 @@
-name: zhiyue
+name: zhice
 
 x-health: &py-health
   interval: 10s
@@ -9,12 +9,12 @@ x-health: &py-health
 services:
   storage-service:
     build: ../services/storage-service
-    image: zhiyue/storage-service:latest
+    image: zhice/storage-service:latest
     environment:
-      DB_PATH: /data/zhiyue.db
+      DB_PATH: /data/zhice.db
     volumes:
-      - zhiyue-data:/data
-    networks: [zhiyue-net]
+      - zhice-data:/data
+    networks: [zhice-net]
     restart: unless-stopped
     healthcheck:
       <<: *py-health
@@ -22,7 +22,7 @@ services:
 
   mcp-tool-service:
     build: ../services/mcp-tool-service
-    image: zhiyue/mcp-tool-service:latest
+    image: zhice/mcp-tool-service:latest
     environment:
       MCP_TRANSPORT: sse
       MCP_HOST: 0.0.0.0
@@ -33,7 +33,7 @@ services:
     depends_on:
       storage-service:
         condition: service_healthy
-    networks: [zhiyue-net]
+    networks: [zhice-net]
     restart: unless-stopped
     healthcheck:
       <<: *py-health
@@ -41,14 +41,14 @@ services:
 
   agent-service:
     build: ../services/agent-service
-    image: zhiyue/agent-service:latest
+    image: zhice/agent-service:latest
     env_file: [.env]
     environment:
       MCP_SSE_URL: http://mcp-tool-service:8002/sse
     depends_on:
       mcp-tool-service:
         condition: service_healthy
-    networks: [zhiyue-net]
+    networks: [zhice-net]
     restart: unless-stopped
     healthcheck:
       <<: *py-health
@@ -56,7 +56,7 @@ services:
 
   ingestion-service:
     build: ../services/ingestion-service
-    image: zhiyue/ingestion-service:latest
+    image: zhice/ingestion-service:latest
     environment:
       STORAGE_URL: http://storage-service:8003
     ports:
@@ -64,7 +64,7 @@ services:
     depends_on:
       storage-service:
         condition: service_healthy
-    networks: [zhiyue-net]
+    networks: [zhice-net]
     restart: unless-stopped
     healthcheck:
       <<: *py-health
@@ -72,7 +72,7 @@ services:
 
   api-gateway:
     build: ../services/api-gateway
-    image: zhiyue/api-gateway:latest
+    image: zhice/api-gateway:latest
     environment:
       AGENT_URL: http://agent-service:8001
       STORAGE_URL: http://storage-service:8003
@@ -82,14 +82,14 @@ services:
     depends_on:
       agent-service:
         condition: service_healthy
-    networks: [zhiyue-net]
+    networks: [zhice-net]
     restart: unless-stopped
     healthcheck:
       <<: *py-health
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8080/health')"]
 
 networks:
-  zhiyue-net: {}
+  zhice-net: {}
 
 volumes:
-  zhiyue-data: {}
+  zhice-data: {}
