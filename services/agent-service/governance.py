@@ -9,8 +9,17 @@
 再在**降级后的** verdict 上计算 R3 冲突与 ceiling，避免自相矛盾的治理态。
 """
 STRONG = ("偏多", "偏空")
-VALID_TYPES = ("indicator", "news_fact", "news_sentiment", "news_inference", "backtest", "market")
+VALID_TYPES = ("indicator", "news_fact", "news_sentiment", "news_inference", "backtest",
+               "market", "model", "stat")
 SENTIMENT = ("news_sentiment", "news_inference")
+
+
+def _conf(m):
+    """委员置信度的容错读取（缺失/非数值 → 0.5）。"""
+    try:
+        return float(m.get("confidence"))
+    except (TypeError, ValueError):
+        return 0.5
 
 
 def _valid_evidence(evidence):
@@ -25,9 +34,10 @@ def _valid_evidence(evidence):
     return out
 
 
-def govern(members, data_status, ml, backtest_stable):
-    """members: list[委员 dict]；data_status；ml: XGBoost 票或 None；backtest_stable: bool。
-    返回 {members_adjusted, ceiling, conflict, report, allowed_verdicts}。
+def govern(members, data_status, ml, backtest_stable, vol_regime=None):
+    """members: list[委员 dict]；data_status；ml: XGBoost 票或 None；backtest_stable: bool；
+    vol_regime: 已实现波动区间 low/normal/elevated/extreme(或 None)。
+    返回 {members_adjusted, ceiling, conflict, disagreement, report, allowed_verdicts}。
     """
     report = []
     adj = []
@@ -51,25 +61,45 @@ def govern(members, data_status, ml, backtest_stable):
     verdicts = {m["verdict"] for m in actives}
     conflict = ("偏多" in verdicts) and ("偏空" in verdicts)
 
+    # —— 连续分歧指数 ∈[0,1]：置信度加权方向散度（0=方向一致，1=势均力敌对立） ——
+    scores = [(1 if m["verdict"] == "偏多" else -1) * _conf(m) for m in actives]
+    gross = sum(abs(s) for s in scores)
+    disagreement = round(1 - abs(sum(scores)) / gross, 3) if gross else 0.0
+
     # —— 置信度天花板 ——
     ceiling = 0.85
     if data_status in ("stale", "error"):
         ceiling = min(ceiling, 0.4)
         report.append(f"R2: 数据{data_status}→置信度≤0.4")
+    elif data_status in ("delayed", "fallback"):
+        # 延迟/备份源数据：未完全失效，但不应携带满额置信度（中间档）
+        ceiling = min(ceiling, 0.65)
+        report.append(f"R2: 数据{data_status}→置信度≤0.65")
     if conflict:
-        ceiling = min(ceiling, 0.55)
-        report.append("R3: 委员意见冲突→暴露分歧、置信度≤0.55")
+        # 梯度天花板随分歧平滑下降：势均力敌对立(index=1)→0.55，轻微异议→更接近 0.85
+        r3 = round(0.85 - 0.30 * disagreement, 3)
+        ceiling = min(ceiling, r3)
+        report.append(f"R3: 委员意见冲突(分歧指数={disagreement})→暴露分歧、置信度≤{r3}")
     if ml is not None and ml.get("abstain"):
         report.append("R4: XGBoost 弃权（AUC≈0.5/样本不足）→该票剔除，不参与投票")
     if not backtest_stable:
         ceiling = min(ceiling, 0.6)
-        report.append("R5: 回测参数敏感性不稳→置信度≤0.6")
-    # R7：模型预警高波动 → 不确定性高 → 封顶置信度（波动信号是可学习、有效的）
+        report.append("R5: 回测不稳健或边际不显著(自助检验)→置信度≤0.6")
+    # R7：模型预警高波动 → 不确定性高 → 封顶置信度（波动信号是可学习、有效的）。
+    # 阈值优先用模型自身的极端分位 q_extreme（数据驱动；弱模型校准概率被压缩，绝对阈值不可达），
+    # 旧模型无分位时回退绝对 0.6，保证向后兼容。
     if ml is not None and not ml.get("abstain"):
         pbm = ml.get("prob_big_move")
-        if isinstance(pbm, (int, float)) and pbm > 0.6:
+        q_ext = ml.get("q_extreme")
+        thr = q_ext if isinstance(q_ext, (int, float)) else 0.6
+        if isinstance(pbm, (int, float)) and pbm >= thr:
             ceiling = min(ceiling, 0.6)
-            report.append(f"R7: 模型预警次日高波动({pbm:.0%})→不确定性升高、置信度≤0.6")
+            report.append(f"R7: 模型预警次日高波动(p={pbm:.2f}≥阈值{thr:.2f})→不确定性升高、置信度≤0.6")
+    # R8：已实现波动处于高分位区间（市场实际波动放大）→ 方向更难判定 → 封顶置信度
+    if vol_regime in ("elevated", "extreme"):
+        cap = 0.6 if vol_regime == "extreme" else 0.7
+        ceiling = min(ceiling, cap)
+        report.append(f"R8: 已实现波动处于{vol_regime}区间→不确定性升高、置信度≤{cap}")
 
     # —— 主席方向的允许集合：治理对"方向"生效，杜绝无据强结论 ——
     if not actives:
@@ -81,4 +111,4 @@ def govern(members, data_status, ml, backtest_stable):
         allowed = {next(iter(verdicts)), "中性"}  # 一致方向 D → 仅允许 D 或中性
 
     return {"members_adjusted": adj, "ceiling": ceiling, "conflict": conflict,
-            "report": report, "allowed_verdicts": allowed}
+            "disagreement": disagreement, "report": report, "allowed_verdicts": allowed}

@@ -83,3 +83,99 @@ def test_high_volatility_caps_confidence_R7():
     m = [{"verdict": "偏多", "confidence": 0.9, "evidence": [_ev()], "abstain": False}]
     r = g.govern(m, "fresh", {"abstain": False, "prob_big_move": 0.75}, True)
     assert r["ceiling"] <= 0.6 and any("R7" in x for x in r["report"])
+
+
+def test_R8_volatility_regime_caps():
+    """已实现波动 extreme/elevated → R8 封顶置信度；normal 不触发。"""
+    g = _g()
+    m = [{"verdict": "偏多", "confidence": 0.9, "evidence": [_ev()], "abstain": False}]
+    r = g.govern(m, "fresh", None, True, vol_regime="extreme")
+    assert r["ceiling"] <= 0.6 and any("R8" in x for x in r["report"])
+    r2 = g.govern(m, "fresh", None, True, vol_regime="elevated")
+    assert r2["ceiling"] <= 0.7 and any("R8" in x for x in r2["report"])
+    r3 = g.govern(m, "fresh", None, True, vol_regime="normal")
+    assert not any("R8" in x for x in r3["report"])
+
+
+def test_disagreement_index_balanced_opposition():
+    """势均力敌的对立 → 分歧指数≈1 → R3 梯度天花板降至 0.55。"""
+    g = _g()
+    m = [{"verdict": "偏多", "confidence": 0.8, "evidence": [_ev()], "abstain": False},
+         {"verdict": "偏空", "confidence": 0.8, "evidence": [_ev("market")], "abstain": False}]
+    r = g.govern(m, "fresh", None, True)
+    assert r["disagreement"] >= 0.9
+    assert r["ceiling"] <= 0.55
+
+
+def test_disagreement_index_lopsided_milder_ceiling():
+    """两强偏多 + 一弱偏空 → 分歧低 → 天花板介于 0.55 与 0.85（比死的 0.55 更诚实）。"""
+    g = _g()
+    m = [{"verdict": "偏多", "confidence": 0.9, "evidence": [_ev()], "abstain": False},
+         {"verdict": "偏多", "confidence": 0.9, "evidence": [_ev("market")], "abstain": False},
+         {"verdict": "偏空", "confidence": 0.2, "evidence": [_ev("backtest")], "abstain": False}]
+    r = g.govern(m, "fresh", None, True)
+    assert r["conflict"] is True
+    assert 0.55 < r["ceiling"] <= 0.85
+    assert r["disagreement"] < 0.5
+
+
+def test_disagreement_index_unanimous_zero():
+    g = _g()
+    m = [{"verdict": "偏空", "confidence": 0.7, "evidence": [_ev()], "abstain": False},
+         {"verdict": "偏空", "confidence": 0.6, "evidence": [_ev("backtest")], "abstain": False}]
+    r = g.govern(m, "fresh", None, True)
+    assert r["disagreement"] == 0.0
+
+
+def test_R7_uses_model_quantile_when_present():
+    """校准概率被压缩时，R7 应按模型自身高分位触发（数据驱动），而非死的 0.6。"""
+    g = _g()
+    m = [{"verdict": "偏多", "confidence": 0.9, "evidence": [_ev()], "abstain": False}]
+    ml = {"abstain": False, "prob_big_move": 0.45, "q_extreme": 0.42}  # 超过自身极端分位
+    r = g.govern(m, "fresh", ml, True)
+    assert r["ceiling"] <= 0.6 and any("R7" in x for x in r["report"])
+
+
+def test_R7_quantile_not_triggered_below():
+    g = _g()
+    m = [{"verdict": "偏多", "confidence": 0.9, "evidence": [_ev()], "abstain": False}]
+    ml = {"abstain": False, "prob_big_move": 0.30, "q_extreme": 0.42}  # 低于自身分位
+    r = g.govern(m, "fresh", ml, True)
+    assert not any("R7" in x for x in r["report"])
+
+
+def test_R7_fallback_absolute_when_no_quantile():
+    """旧模型(无分位)向后兼容：回退绝对阈值 0.6。"""
+    g = _g()
+    m = [{"verdict": "偏多", "confidence": 0.9, "evidence": [_ev()], "abstain": False}]
+    ml = {"abstain": False, "prob_big_move": 0.75}
+    r = g.govern(m, "fresh", ml, True)
+    assert r["ceiling"] <= 0.6 and any("R7" in x for x in r["report"])
+
+
+def test_model_and_stat_evidence_are_substantive():
+    """ML(model) 与统计检验(stat) 证据应被视为实质证据，不被 R1/R6 降级。"""
+    g = _g()
+    m = [{"verdict": "偏多", "confidence": 0.8,
+          "evidence": [{"type": "model", "source": "ml_signal",
+                        "value": "prob_big_move=0.7", "interpretation": "高波动风险"}],
+          "abstain": False}]
+    r = g.govern(m, "fresh", None, True)
+    assert r["members_adjusted"][0]["verdict"] == "偏多"
+    m2 = [{"verdict": "偏空", "confidence": 0.8,
+           "evidence": [{"type": "stat", "source": "block_bootstrap",
+                         "value": "p=0.03", "interpretation": "边际显著"}],
+           "abstain": False}]
+    r2 = g.govern(m2, "fresh", None, True)
+    assert r2["members_adjusted"][0]["verdict"] == "偏空"
+
+
+def test_delayed_and_fallback_capped_R2():
+    """delayed/fallback 数据应被 R2 中间档(<=0.65)封顶；fresh 不受影响。"""
+    g = _g()
+    m = [{"verdict": "偏多", "confidence": 0.9, "evidence": [_ev()], "abstain": False}]
+    for st in ("delayed", "fallback"):
+        r = g.govern(m, st, None, True)
+        assert r["ceiling"] <= 0.65, st
+        assert any("R2" in x for x in r["report"]), st
+    assert g.govern(m, "fresh", None, True)["ceiling"] == 0.85

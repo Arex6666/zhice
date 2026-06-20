@@ -25,14 +25,15 @@ OUT_DIR = os.path.join(ROOT, "services", "agent-service", "models")
 async def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     ad = finance.get_adapter("ASHARE")
-    Xs, ys = [], []
-    for code in SYMBOLS:
+    Xs, ys, gs = [], [], []
+    for gi, code in enumerate(SYMBOLS):
         try:
             kl = await ad.get_kline(code, "daily", 250)
             X, y = ml_signal.build_dataset(kl)
             if len(X):
                 Xs.append(X)
                 ys.append(y)
+                gs.append(np.full(len(X), gi))  # 每标的一个 group，供 walk-forward 守时序
                 print(f"  {code}: {len(X)} samples")
         except Exception as e:
             print(f"  {code}: skip ({type(e).__name__})")
@@ -41,9 +42,12 @@ async def main():
         return
     X = np.vstack(Xs)
     y = np.concatenate(ys)
-    print(f"总样本: {len(X)}")
-    met = ml_signal.train(X, y)
-    print(f"AUC={met['auc']}  abstain={met['abstain']}  reason={met.get('abstain_reason')}")
+    groups = np.concatenate(gs)
+    print(f"总样本: {len(X)}  组(标的)数: {len(set(groups.tolist()))}")
+    met = ml_signal.train(X, y, groups)
+    print(f"pooled OOS AUC={met['auc']}  fold AUCs={[round(a,3) for a in met.get('fold_aucs', [])]}"
+          f"  abstain={met['abstain']}  reason={met.get('abstain_reason')}")
+    print(f"prob_quantiles={met.get('prob_quantiles')}")
     out = os.path.join(OUT_DIR, "signal_ASHARE.pkl")
     ml_signal.save_model(met, out)
     print("saved", out)

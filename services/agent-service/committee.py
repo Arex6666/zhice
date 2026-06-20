@@ -8,6 +8,28 @@ import inspect
 import json
 
 import governance
+import news_nlp
+
+_NEWS_TYPES = ("news_fact", "news_sentiment", "news_inference")
+
+
+def _reverify_evidence_types(members):
+    """独立重核委员引用的新闻证据类型：LLM 标 news_fact 但文本实为推断/情绪 → 改判。
+
+    保留原标注于 type_reverified 供审计。让治理 R6 对"伪装成事实的观点"生效。
+    """
+    for m in members:
+        for e in (m.get("evidence") or []):
+            if not isinstance(e, dict) or e.get("type") not in _NEWS_TYPES:
+                continue
+            text = f"{e.get('value', '')} {e.get('interpretation', '')}".strip()
+            if not text:
+                continue
+            mapped = news_nlp.to_evidence_type(news_nlp.classify_claim(text))
+            if mapped != e["type"]:
+                e["type_reverified"] = e["type"]
+                e["type"] = mapped
+    return members
 
 DISCLAIMER = "仅供学习研究，不构成投资建议。市场有风险，决策需谨慎。"
 
@@ -84,16 +106,71 @@ def _ml_member(ml):
     p = ml.get("prob_big_move")
     if not isinstance(p, (int, float)):  # 非弃权但概率缺失/非数值 → 视同弃权，避免崩溃
         return None
-    level = "高" if p > 0.6 else ("中" if p > 0.4 else "低")
+    # 风险分级优先用模型自身分位（数据驱动），旧模型无分位时回退绝对 0.6/0.4
+    q_ext = ml.get("q_extreme")
+    q_ele = ml.get("q_elevated")
+    hi = q_ext if isinstance(q_ext, (int, float)) else 0.6
+    mid = q_ele if isinstance(q_ele, (int, float)) else 0.4
+    level = "高" if p >= hi else ("中" if p >= mid else "低")
     return {"lens": "XGBoost风险信号(波动)", "verdict": "中性", "confidence": 0.0,
             "reasons": [f"模型预测次日大波动概率≈{p:.0%}(样本外 AUC={ml.get('auc')})，属{level}风险；"
                         "仅校准不确定性、不指示涨跌方向"],
-            "evidence": [{"type": "backtest", "source": "ml_signal",
+            "evidence": [{"type": "model", "source": "ml_signal",
                           "value": f"prob_big_move={p:.2f}, AUC={ml.get('auc')}",
                           "interpretation": f"{level}波动风险"}],
             "counter_evidence": ["波动预测不指示方向；模型为统计弱信号"],
             "risks": ["高波动期方向更难判定，应降低置信度"],
             "abstain": False, "abstain_reason": None, "risk_prob": p}
+
+
+def _conf(m):
+    try:
+        return float(m.get("confidence"))
+    except (TypeError, ValueError):
+        return 0.5
+
+
+def _has_substantive(m):
+    ev = governance._valid_evidence(m.get("evidence"))
+    return any(e["type"] not in governance.SENTIMENT for e in ev)
+
+
+def _find_dominant_contested(members):
+    """冲突时找"被实质证据反对的最高置信度强结论委员"，作为交叉质询对象；否则 None。"""
+    actives = [m for m in members if not m.get("abstain") and m.get("verdict") in governance.STRONG]
+    dirs = {m["verdict"] for m in actives}
+    if not (("偏多" in dirs) and ("偏空" in dirs)):
+        return None
+    dom = max(actives, key=_conf)
+    opponents = [m for m in actives if m["verdict"] != dom["verdict"]]
+    return dom if any(_has_substantive(o) for o in opponents) else None
+
+
+async def _cross_examine(members, llm, model):
+    """R9：对支配性强结论委员发**恰好一次**结构化质询——要么用新实质证据反驳，要么降级。
+
+    返回治理报告补充行(或 None)。封顶 1 次 LLM 调用以控成本。
+    """
+    dom = _find_dominant_contested(members)
+    if dom is None or llm is None:
+        return None
+    prompt = (f"你先前的结论是「{dom.get('verdict')}」(置信度{dom.get('confidence')})，"
+              "但其他委员以实质证据持相反观点。请用**新的实质证据(技术指标/量价/回测/可核实事实，"
+              "不接受单纯情绪或推断)**反驳对立观点；若拿不出，请把 verdict 改为「中性」。\n"
+              + _MEMBER_INSTRUCT)
+    try:
+        raw = await _call_llm(llm, model, "你是被质询的委员，需以新实质证据捍卫结论或主动降级。", prompt)
+    except Exception:
+        return None
+    resp = _parse_json(raw)
+    if isinstance(resp, dict):
+        _reverify_evidence_types([{"evidence": resp.get("evidence") or []}])
+        if _has_substantive({"evidence": resp.get("evidence") or []}) \
+                and (resp.get("verdict") in governance.STRONG):
+            return f"R9: 交叉质询「{dom.get('lens', '?')}」→ 其提供新实质证据，维持「{dom.get('verdict')}」"
+    dom["verdict"] = "中性"
+    dom["cross_examined"] = True
+    return f"R9: 交叉质询「{dom.get('lens', '?')}」→ 未能以新实质证据反驳对立观点，降级为中性"
 
 
 async def run_committee(symbol, gather_fn, llm, model, ml=None):
@@ -109,15 +186,25 @@ async def run_committee(symbol, gather_fn, llm, model, ml=None):
     if mlm:
         members.append(mlm)
 
+    # 独立重核新闻证据类型（不轻信 LLM 自报）
+    _reverify_evidence_types(members)
+    # R9：冲突时对支配性委员发一次结构化交叉质询（在治理裁决之前）
+    xexam_note = await _cross_examine(members, llm, model)
+
     gov = governance.govern(members, data.get("data_status", "fresh"), ml,
-                            bool(data.get("backtest_stable", True)))
+                            bool(data.get("backtest_stable", True)),
+                            vol_regime=data.get("vol_regime"))
+    if xexam_note:
+        gov["report"].append(xexam_note)
     governed = gov["members_adjusted"]
 
     chair_blob = "已治理的委员意见：\n" + json.dumps(governed, ensure_ascii=False)[:3500] + \
                  "\n治理记录：" + "；".join(gov["report"])
     chair_raw = await _call_llm(llm, model, _CHAIR_INSTRUCT, chair_blob)
-    chair = _parse_json(chair_raw) or {"final": "中性", "confidence": 0.3,
-                                       "confidence_reason": "主席输出解析失败，保守中性"}
+    chair = _parse_json(chair_raw)
+    if not isinstance(chair, dict):  # 解析失败或返回非 dict(数组/数字/字符串) → 保守中性，杜绝 502
+        chair = {"final": "中性", "confidence": 0.3,
+                 "confidence_reason": "主席输出解析失败，保守中性"}
 
     # 置信度容错 + clamp 到 [0, ceiling]（confidence 可能为 null/非数值）
     try:
@@ -137,5 +224,6 @@ async def run_committee(symbol, gather_fn, llm, model, ml=None):
 
     return {"symbol": symbol, "members": governed, "chairman": chair,
             "governance_report": gov["report"], "conflict": gov["conflict"],
+            "disagreement": gov.get("disagreement"),
             "verdict": final_verdict, "confidence": final_conf,
             "data_status": data.get("data_status", "fresh"), "disclaimer": DISCLAIMER}

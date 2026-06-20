@@ -29,6 +29,20 @@ def _stable(sens):
     return len(signs) == 1  # 不同参数收益同号 → 较稳；符号翻转 → 不稳（过拟合嫌疑）
 
 
+def _backtest_trustworthy(bt):
+    """回测可信 = 参数稳健 且 边际统计显著（自助检验）。
+
+    显著性不可判定(样本不足→significant=None)时，仅按稳健性判断，不额外降级。
+    """
+    if not isinstance(bt, dict):
+        return True
+    stable = _stable(bt.get("sensitivity", []))
+    sig = bt.get("significance")
+    if isinstance(sig, dict) and sig.get("significant") is False:
+        return False
+    return stable
+
+
 async def _gather(symbol, session):
     async def t(name, args):
         try:
@@ -43,9 +57,8 @@ async def _gather(symbol, session):
     mkt = await t("market_overview", {"market": _market(symbol)})
     q = await t("get_quote", {"symbol": symbol})
     data_status = q.get("data_status", "error") if isinstance(q, dict) else "error"
-    sens = bt.get("sensitivity", []) if isinstance(bt, dict) else []
     return {"indicators": ind, "signals": sig, "news": news, "backtest": bt, "market": mkt,
-            "quote": q, "data_status": data_status, "backtest_stable": _stable(sens)}
+            "quote": q, "data_status": data_status, "backtest_stable": _backtest_trustworthy(bt)}
 
 
 def _ml_vote(symbol, kline):
@@ -54,7 +67,7 @@ def _ml_vote(symbol, kline):
     try:
         return cal.predict(feats)
     except Exception:
-        return {"prob_up": None, "abstain": True, "abstain_reason": "模型推理失败", "auc": None}
+        return {"prob_big_move": None, "abstain": True, "abstain_reason": "模型推理失败", "auc": None}
 
 
 def _llm():
@@ -111,6 +124,12 @@ async def analyze(symbol, mode="deep"):
         data = await _gather(symbol, session)
         kline = await mcp_client.call_tool_data(session, "get_kline", {"symbol": symbol, "count": 120})
         ml = _ml_vote(symbol, kline)
+        # 已实现波动区间 → 治理 R8（best-effort：取数失败不影响主流程）
+        try:
+            vol = await mcp_client.call_tool_data(session, "get_volatility", {"symbol": symbol})
+            data["vol_regime"] = vol.get("regime") if isinstance(vol, dict) else None
+        except Exception:
+            data["vol_regime"] = None
         llm, model = _llm()
 
         async def gather_fn(_):
@@ -119,6 +138,8 @@ async def analyze(symbol, mode="deep"):
         result = await committee.run_committee(symbol, gather_fn, llm, model, ml=ml)
         result["mode"] = "deep"
         result["ml"] = ml
+        result["backtest"] = data.get("backtest")        # 含净值曲线/显著性，供仪表盘
+        result["vol_regime"] = data.get("vol_regime")    # 已实现波动区间(R8)
         # 落库供自审计
         try:
             price = (data.get("quote") or {}).get("price")
