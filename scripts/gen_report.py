@@ -517,6 +517,9 @@ def sec_finance():
           cap="图 7-2  深度研判全貌：证据链投研委员会（四面 LLM 分析师 + ML 票）+ 主席置信度环 + 反证驱动解释面板")
     image("报告/screenshots/08_finance_explanation.png", width=6.4,
           cap="图 7-3  反证驱动决策解释面板：主席结论 + 置信度环 + 主要支持/反对证据 + 结论失效条件")
+    image("报告/screenshots/09_finance_ml_risk.png", width=6.4,
+          cap="图 7-4  XGBoost 风险信号（波动）：次日大波动概率 30% · 样本外 AUC 0.556（有效弱信号，"
+              "非方向预测），高波动时由治理规则 R7 下调整体置信度")
     para("说明：金融研判仅供学习研究，不构成投资建议；短周期方向接近随机游走，ML 与回测均标注未来函数/过拟合/不可外推。",
          indent=True, italic=True)
 

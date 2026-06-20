@@ -1,8 +1,8 @@
 == 智策金融冒烟测试 ==
-  [PASS] gateway /api/status  -> {'gateway': 'ok', 'agent': 'ok', 'storage': 'ok', 'ingestion': 'ok', 'ingestion_detail': {'service': 'ingestion-service', 'quotes_collected': 0, 'alerts_raised': 0, 'review_filled': 0, 'failures': 0, 'last_run_ts': '1781885448.7290728', 'running': True, 'intervals': {'quote_sec': 300, 'review_sec': 3600, 'alert_sec': 600}}, 'metrics': {'requests': 23, 'chat': 0}}
+  [PASS] gateway /api/status  -> {'gateway': 'ok', 'agent': 'ok', 'storage': 'ok', 'ingestion': 'ok', 'ingestion_detail': {'service': 'ingestion-service', 'quotes_collected': 0, 'alerts_raised': 0, 'review_filled': 0, 'failures': 0, 'last_run_ts': '1781928178.8524826', 'running': True, 'intervals': {'quote_sec': 300, 'review_sec': 3600, 'alert_sec': 600}}, 'metrics': {'requests': 2, 'chat': 0}}
   [PASS] quote ASHARE:600519  -> price=1215.0 status=fresh
   [PASS] quote US:AAPL  -> price=None status=error
-  [PASS] quote CRYPTO:BTCUSDT  -> price=63174.0 status=fallback
+  [PASS] quote CRYPTO:BTCUSDT  -> price=63371.0 status=fallback
   [PASS] deep 有委员会成员
   [PASS] deep 有主席结论
   [PASS] deep 有治理记录字段
