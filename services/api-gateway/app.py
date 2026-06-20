@@ -92,14 +92,11 @@ async def status():
     return JSONResponse(out)
 
 
-@app.get("/finance")
-def finance_page():
-    return FileResponse(os.path.join(HERE, "static", "finance.html"))
-
-
 @app.get("/")
+@app.get("/finance")
 def index():
-    return FileResponse(os.path.join(HERE, "static", "index.html"))
+    # 金融仪表盘为唯一首页（原智阅聊天页已下线）
+    return FileResponse(os.path.join(HERE, "static", "finance.html"))
 
 
 app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")), name="static")
