@@ -10,7 +10,7 @@ import pandas as pd
 
 def _cal():
     s = importlib.util.spec_from_file_location(
-        "cal", "services/ingestion-service/calendar.py")
+        "cal", "services/ingestion-service/trade_calendar.py")
     m = importlib.util.module_from_spec(s)
     s.loader.exec_module(m)
     return m
