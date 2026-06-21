@@ -34,9 +34,13 @@ def _valid_evidence(evidence):
     return out
 
 
-def govern(members, data_status, ml, backtest_stable, vol_regime=None):
+def govern(members, data_status, ml, backtest_stable, vol_regime=None,
+           factor_flags=None, regime_scale=None, portfolio_flags=None):
     """members: list[委员 dict]；data_status；ml: XGBoost 票或 None；backtest_stable: bool；
-    vol_regime: 已实现波动区间 low/normal/elevated/extreme(或 None)。
+    vol_regime: 已实现波动区间(或 None)。
+    factor_flags: list[因子证据旗标 dict]（pit_status/history_depth/risk_gate/ic_verdict/bh_passed/
+      stale/incremental_ic/missing_metadata）→ R10–R12；regime_scale: 仓位乘子(仅记录, 不压 ceiling)；
+    portfolio_flags: {beats_1overN, capacity_flag} → R13。新参数默认 None 向后兼容。
     返回 {members_adjusted, ceiling, conflict, disagreement, report, allowed_verdicts}。
     """
     report = []
@@ -100,6 +104,33 @@ def govern(members, data_status, ml, backtest_stable, vol_regime=None):
         cap = 0.6 if vol_regime == "extreme" else 0.7
         ceiling = min(ceiling, cap)
         report.append(f"R8: 已实现波动处于{vol_regime}区间→不确定性升高、置信度≤{cap}")
+
+    # —— R10–R12：因子证据治理（DAG：R12 剔无效 → R11 封顶不可靠 → R10 因子降权） ——
+    for ff in (factor_flags or []):
+        name = ff.get("factor", "?")
+        # R12：未过 BH / 已陈旧 / 无增量 IC / 缺元数据 → 排除该证据（不再参与后续）
+        if (ff.get("bh_passed") is False or ff.get("stale")
+                or (ff.get("incremental_ic") is not None and ff["incremental_ic"] <= 0)
+                or ff.get("missing_metadata")):
+            report.append(f"R12: 因子「{name}」未过BH/已陈旧/无增量IC/缺元数据→排除该证据")
+            continue
+        # R11：IC 衰减/失效 → 封顶
+        if ff.get("ic_verdict") in ("衰减中", "失效"):
+            ceiling = min(ceiling, 0.6)
+            report.append(f"R11: 因子「{name}」IC{ff['ic_verdict']}→估计不可靠、置信度≤0.6")
+        # R10：非 PIT / 历史不足 / 风险闸 → 封顶因子证据贡献
+        if (ff.get("pit_status") in ("forward_pit_only", "lagged_fixed", "lagged_legal_deadline")
+                or ff.get("history_depth", 1e9) < 252 or ff.get("risk_gate")):
+            ceiling = min(ceiling, 0.65)
+            report.append(f"R10: 因子「{name}」非PIT/历史不足/风险闸→置信度≤0.65")
+    if regime_scale is not None and regime_scale < 1.0:
+        report.append(f"治理: 仓位乘子 regime_scale={regime_scale}（仅缩 net-exposure，不压方向天花板）")
+    # R13：组合级独立审计（未跑赢 1/N 或容量不可投 → 仅展示风险均衡、不主张 alpha）
+    if portfolio_flags is not None:
+        beats = portfolio_flags.get("beats_1overN")
+        cap = portfolio_flags.get("capacity_flag")
+        if beats is None or beats is False or cap == "infeasible":
+            report.append("R13: 组合样本外未跑赢1/N或容量受限→仅展示风险均衡(ERC)、不主张alpha、研究型不可实盘")
 
     # —— 主席方向的允许集合：治理对"方向"生效，杜绝无据强结论 ——
     if not actives:

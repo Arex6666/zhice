@@ -85,6 +85,45 @@ def test_high_volatility_caps_confidence_R7():
     assert r["ceiling"] <= 0.6 and any("R7" in x for x in r["report"])
 
 
+def test_R10_non_pit_factor_caps():
+    g = _g()
+    m = [{"verdict": "偏多", "confidence": 0.9, "evidence": [_ev()], "abstain": False}]
+    ff = [{"factor": "EP", "pit_status": "forward_pit_only", "history_depth": 300, "bh_passed": True}]
+    r = g.govern(m, "fresh", None, True, factor_flags=ff)
+    assert r["ceiling"] <= 0.65 and any("R10" in x for x in r["report"])
+
+
+def test_R11_ic_decay_caps():
+    g = _g()
+    m = [{"verdict": "偏多", "confidence": 0.9, "evidence": [_ev()], "abstain": False}]
+    ff = [{"factor": "Mom", "pit_status": "history_native", "history_depth": 1000,
+           "bh_passed": True, "ic_verdict": "衰减中"}]
+    r = g.govern(m, "fresh", None, True, factor_flags=ff)
+    assert r["ceiling"] <= 0.6 and any("R11" in x for x in r["report"])
+
+
+def test_R12_excludes_invalid_factor():
+    g = _g()
+    m = [{"verdict": "偏多", "confidence": 0.9, "evidence": [_ev()], "abstain": False}]
+    ff = [{"factor": "junk", "bh_passed": False}]
+    r = g.govern(m, "fresh", None, True, factor_flags=ff)
+    assert any("R12" in x and "排除" in x for x in r["report"])
+
+
+def test_R13_portfolio_not_beat_one_over_n():
+    g = _g()
+    m = [{"verdict": "偏多", "confidence": 0.9, "evidence": [_ev()], "abstain": False}]
+    r = g.govern(m, "fresh", None, True, portfolio_flags={"beats_1overN": None, "capacity_flag": "ok"})
+    assert any("R13" in x for x in r["report"])
+
+
+def test_R10_R13_backward_compatible():
+    g = _g()  # 新参数默认 None → 不触发, 与既有 R1-R8 行为一致
+    m = [{"verdict": "偏多", "confidence": 0.9, "evidence": [_ev()], "abstain": False}]
+    r = g.govern(m, "fresh", None, True)
+    assert not any(("R10" in x or "R11" in x or "R12" in x or "R13" in x) for x in r["report"])
+
+
 def test_R8_volatility_regime_caps():
     """已实现波动 extreme/elevated → R8 封顶置信度；normal 不触发。"""
     g = _g()
