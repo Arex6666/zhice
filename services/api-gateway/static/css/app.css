@@ -386,7 +386,12 @@ section { margin-top: 24px; }
 .narr-list li::before { content: "▸"; position: absolute; left: 0; color: var(--jade-deep); }
 .narr-list li b { color: var(--ink); }
 .narr-ic { font-family: var(--mono); font-size: 12px; padding: 1px 7px; border-radius: 6px;
-  background: var(--up-soft); white-space: nowrap; }
+  background: rgba(159,178,166,.1); color: var(--ink-soft); white-space: nowrap; }
+.narr-key { font-size: 14px; line-height: 1.7; color: var(--ink); margin: 8px 0 4px;
+  padding: 11px 14px; border-radius: 10px; border: 1px solid var(--jade-deep);
+  background: linear-gradient(180deg, var(--jade-glow), transparent); }
+.narr-key b { color: var(--jade); }
+.narr-list li b.up { color: var(--up); } .narr-list li b.down { color: var(--down); }
 .narr-foot { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line);
   font-size: 12.5px; line-height: 1.7; color: var(--ink-faint); }
 .narr-foot b { color: var(--jade); font-family: var(--mono); }

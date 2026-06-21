@@ -664,24 +664,25 @@ function renderReview(data){
 const QUANT_FACTORS = ["Mom_12_1", "Mom_6_1", "Rev_1", "Rev_5", "Rev_21",
   "TotalVol", "Vol_60", "DownVol", "HiLoRange", "MaxRet", "Hi52", "MA_Trend",
   "RangePos", "Amihud", "VolRatio", "PVCorr"];
-// 每个因子的"大白话"含义：fam=家族，plain=显著时通俗说明（这条挑股规律到底在说什么）
+// 每因子：fam=家族，hi=「该因子值高」代表什么样的股票（中性描述）。
+// 解读时把 hi 与「实测 RankIC 符号」结合 → 永远据数据说话，不被预设方向误导。
 const FACTOR_EXPLAIN = {
-  Mom_12_1: {cn:"12-1月动量", fam:"动量", plain:"过去一年涨得好的股票倾向继续涨（强者恒强）"},
-  Mom_6_1:  {cn:"6-1月动量",  fam:"动量", plain:"半年来的赢家倾向延续走强"},
-  Rev_1:    {cn:"1日反转",    fam:"反转", plain:"昨天涨多的今天更可能回落——A股散户「追高易套」的典型特征"},
-  Rev_5:    {cn:"5日反转",    fam:"反转", plain:"近一周涨多的股票接下来更可能回调"},
-  Rev_21:   {cn:"1月反转",    fam:"反转", plain:"近一月涨多的下月倾向回落"},
-  TotalVol: {cn:"20日波动",   fam:"低波", plain:"越「上蹿下跳」的股票未来收益越差（稳的反而更优）"},
-  Vol_60:   {cn:"60日波动",   fam:"低波", plain:"长期波动大的股票后续更弱（低波异象）"},
-  DownVol:  {cn:"下行波动",   fam:"低波", plain:"下跌时抖得厉害的股票后续更差"},
-  HiLoRange:{cn:"日内振幅",   fam:"低波", plain:"天天大开大合的股票后续更弱"},
-  MaxRet:   {cn:"最大单日涨幅",fam:"彩票效应", plain:"近期有过「暴涨日」的股票后续反而更差（博彩心理被高估）"},
-  Hi52:     {cn:"52周高点接近度",fam:"趋势", plain:"越靠近一年新高的股票越倾向继续创新高"},
-  MA_Trend: {cn:"均线趋势",   fam:"趋势", plain:"短均线压住长均线＝上升趋势，倾向延续"},
-  RangePos: {cn:"区间位置",   fam:"趋势", plain:"价格在近20日高低带里越靠上，越偏强"},
-  Amihud:   {cn:"非流动性",   fam:"流动性", plain:"越冷清难成交的股票要更高「流动性溢价」"},
-  VolRatio: {cn:"量比",       fam:"量能", plain:"异常放量的股票后续更可能回落"},
-  PVCorr:   {cn:"量价相关",   fam:"量能", plain:"放量涨/缩量跌（量价配合）的趋势更可信"},
+  Mom_12_1: {cn:"12-1月动量", fam:"动量", hi:"过去一年涨得多"},
+  Mom_6_1:  {cn:"6-1月动量",  fam:"动量", hi:"过去半年涨得多"},
+  Rev_1:    {cn:"1日反转",    fam:"反转", hi:"昨天跌得多（隔夜回落）"},
+  Rev_5:    {cn:"5日反转",    fam:"反转", hi:"近一周跌得多"},
+  Rev_21:   {cn:"1月反转",    fam:"反转", hi:"近一月跌得多"},
+  TotalVol: {cn:"20日波动",   fam:"低波", hi:"价格波动大"},
+  Vol_60:   {cn:"60日波动",   fam:"低波", hi:"长期波动大"},
+  DownVol:  {cn:"下行波动",   fam:"低波", hi:"下跌时抖得厉害"},
+  HiLoRange:{cn:"日内振幅",   fam:"低波", hi:"每天大开大合（高低差大）"},
+  MaxRet:   {cn:"最大单日涨幅",fam:"彩票效应", hi:"近期出现过暴涨日"},
+  Hi52:     {cn:"52周高点接近度",fam:"趋势", hi:"越接近一年新高"},
+  MA_Trend: {cn:"均线趋势",   fam:"趋势", hi:"短均线压住长均线（上升趋势）"},
+  RangePos: {cn:"区间位置",   fam:"趋势", hi:"价格在近20日高低带里越靠上"},
+  Amihud:   {cn:"非流动性",   fam:"流动性", hi:"越冷清难成交"},
+  VolRatio: {cn:"量比",       fam:"量能", hi:"异常放量"},
+  PVCorr:   {cn:"量价相关",   fam:"量能", hi:"量价正相关（放量涨/缩量跌）"},
 };
 
 function buildQuantNarrative(items){
@@ -694,12 +695,24 @@ function buildQuantNarrative(items){
   h += '<div class="narr-h">📊 这次体检说明了什么（大白话）</div>';
   h += '<p>本次在 <b>中证300 口径</b>（已剔除小盘股，防壳价值污染）上体检了 <b>'+items.length
      + '</b> 个「价量因子」。一个因子＝一条「挑股票的规律」；体检就是看每条规律在历史截面上<b>到底站不站得住脚</b>。</p>';
+  // 头条洞察（据实测自动生成）：最强信号 + A股反转/动量特征
+  const strongest = sig.slice().sort((a,b)=>Math.abs(b.r.mean_rank_ic||0)-Math.abs(a.r.mean_rank_ic||0))[0];
+  const revSig = sig.filter(x=>ex(x.f).fam==='反转').length;
+  const momHit = items.filter(x=>ex(x.f).fam==='动量').some(x=>x.r.significant===1);
+  if (strongest){
+    h += '<div class="narr-key">📌 本次最强信号：<b>'+esc(ex(strongest.f).cn)+'</b>（RankIC '
+       + signed(strongest.r.mean_rank_ic,3)+'，越接近 ±0.05 越好）。'
+       + (revSig>=2 && !momHit ? '反转类多项显著、动量类全部不显著/弃权——<b>A股呈典型「反转市」特征</b>（涨多易回落、跌多易反弹），与学术界对 A 股的共识一致。' : '')
+       + '</div>';
+  }
   if (sig.length){
     h += '<div class="narr-tag ok">✓ 站得住脚的规律（'+sig.length+' 条，统计显著）</div><ul class="narr-list">';
-    sig.forEach(x => { const e = ex(x.f);
-      h += '<li><b>'+esc(e.cn)+'</b>（'+esc(e.fam)+'）：'+esc(e.plain)
-         + ' <span class="narr-ic up">RankIC '+(x.r.mean_rank_ic!=null?signed(x.r.mean_rank_ic,4):'—')
-         + (x.r.ic_t_hac!=null?'，t='+fmt(x.r.ic_t_hac,2):'')+'</span></li>'; });
+    sig.slice().sort((a,b)=>Math.abs(b.r.mean_rank_ic||0)-Math.abs(a.r.mean_rank_ic||0)).forEach(x => {
+      const e = ex(x.f), ic = x.r.mean_rank_ic;
+      const up = ic > 0, dir = up ? '走强' : '走弱', cls = up ? 'up' : 'down';
+      h += '<li><b>'+esc(e.cn)+'</b>（'+esc(e.fam)+'）：「'+esc(e.hi)+'」的股票，未来倾向<b class="'+cls+'">'+dir+'</b>'
+         + ' <span class="narr-ic">RankIC '+(ic!=null?signed(ic,4):'—')
+         + (x.r.ic_t_hac!=null?'，t='+fmt(x.r.ic_t_hac,2):'')+'，显著</span></li>'; });
     h += '</ul>';
   } else {
     h += '<div class="narr-tag flat">— 本批没有统计显著的因子</div>'
