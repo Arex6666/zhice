@@ -61,6 +61,41 @@ def parse_baidu_valuation(df):
     return out
 
 
+def _valid_date(s):
+    return bool(s) and len(s) == 10 and s[4] == "-" and s[7] == "-"
+
+
+def parse_earnings_disclosure(df, period):
+    """业绩预告/快报 → [{symbol, disclosed_date, legal_deadline, announce_date, pit_status, period}]。
+
+    可见日 announce_date = min(法定截止日, 真披露日)（§4 L0）：真披露日早于法定日 → pit_status=
+    'lagged_disclosed'（已用真披露日，A 股大量公司远早于法定日披露）；无真披露日 → 回退法定日
+    'lagged_legal_deadline'。脏披露日剔除后回退法定日。YYYY-MM-DD 字符串序即日期序，可直接 min。
+    """
+    rows = df.to_dict("records") if hasattr(df, "to_dict") else list(df)
+    legal = legal_deadline_for(period)
+    out = []
+    for r in rows:
+        sym = r.get("股票代码") or r.get("代码") or r.get("symbol")
+        if not sym:
+            continue
+        disc = (r.get("公告日期") or r.get("预告日期") or r.get("披露日期")
+                or r.get("最新公告日期"))
+        disc = str(disc)[:10] if disc else None
+        if not _valid_date(disc):
+            disc = None
+        if disc and legal:
+            announce, pit = min(disc, legal), ("lagged_disclosed" if disc < legal
+                                               else "lagged_legal_deadline")
+        elif disc:
+            announce, pit = disc, "lagged_disclosed"
+        else:
+            announce, pit = legal, "lagged_legal_deadline"
+        out.append({"symbol": str(sym), "disclosed_date": disc, "legal_deadline": legal,
+                    "announce_date": announce, "pit_status": pit, "period": period})
+    return out
+
+
 def parse_csindex_cons(df, index_code):
     """中证成分 → membership 行（无历史 date，统一标 today_snapshot_only）。"""
     rows = df.to_dict("records") if hasattr(df, "to_dict") else list(df)

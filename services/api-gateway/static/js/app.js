@@ -469,6 +469,18 @@ function renderDeep(data){
     html += '<section><div class="notice"><b>⚠ 委员意见冲突</b> — 存在偏多/偏空对立，治理引擎按<b>分歧指数'
       + (di != null ? ' ' + di : '') + '</b>（0=一致，1=势均力敌）梯度压低置信度天花板并强制暴露分歧。</div></section>';
   }
+  // 智能体自主取证（LLM 自主调用 MCP 实时工具）—— MCP 活性可视化
+  if (data.agentic && data.agentic.research){
+    const tr = Array.isArray(data.agentic.trace) ? data.agentic.trace : [];
+    html += '<section><div class="sec-title">Agentic · 智能体自主取证 <span class="cn">LLM 自主调用 MCP 工具</span></div><div class="card">';
+    if (tr.length){
+      html += '<div class="ev-title">本轮 LLM 自主调用的实时工具（offline 工具被 §3.4 硬隔离）</div>'
+        + '<div class="chips-sm">' + tr.map(t =>
+            '<span class="'+(t.blocked?'chip-counter':'chip-risk')+'">'+esc(t.tool)+(t.blocked?' ⛔offline':'')+'</span>').join('') + '</div>';
+    }
+    html += '<div class="review-note" style="white-space:pre-wrap;margin-top:12px">'+esc(data.agentic.research)+'</div>';
+    html += '</div></section>';
+  }
   html += '<section><div class="sec-title">Committee · 委员会研判 <span class="cn">证据链投研委员会</span></div><div class="grid mem">';
   members.forEach(m => { html += memberCard(m); });
   if (!members.length) html += '<div class="empty-soft">无委员意见。</div>';
