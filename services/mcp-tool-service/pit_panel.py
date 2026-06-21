@@ -28,3 +28,24 @@ async def fetch_asof(symbol, field, date, kind="panel"):
                         params={"symbol": symbol, "field": field, "date": date, "kind": kind})
         r.raise_for_status()
         return {**r.json(), "execution_mode": EXECUTION_MODE}
+
+
+async def fetch_factor_eval(factor_name, as_of=None, universe_filter="lsy"):
+    """委员会只读 L2 离线落库的因子评估（realtime, 毫秒级 SQLite 查询）。"""
+    params = {"factor_name": factor_name, "universe_filter": universe_filter}
+    if as_of:
+        params["as_of"] = as_of
+    async with httpx.AsyncClient(timeout=8) as c:
+        r = await c.get(f"{STORAGE_URL}/pit/factor_eval", params=params)
+        r.raise_for_status()
+        return {**r.json(), "execution_mode": EXECUTION_MODE}
+
+
+async def fetch_portfolio(portfolio_id, as_of=None):
+    params = {"portfolio_id": portfolio_id}
+    if as_of:
+        params["as_of"] = as_of
+    async with httpx.AsyncClient(timeout=8) as c:
+        r = await c.get(f"{STORAGE_URL}/pit/portfolio", params=params)
+        r.raise_for_status()
+        return {**r.json(), "execution_mode": EXECUTION_MODE}

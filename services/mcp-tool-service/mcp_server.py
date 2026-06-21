@@ -89,6 +89,18 @@ async def asof_value(symbol: str, field: str, date: str, kind: str = "panel") ->
 
 
 @mcp.tool()
+async def read_factor_eval(factor_name: str, as_of: str = None, universe_filter: str = "lsy") -> dict:
+    """[realtime] 读 L2 离线落库的因子评估(委员会因子分析师用; 无记录返 data_missing 弃权)。"""
+    return await pit_panel.fetch_factor_eval(factor_name, as_of, universe_filter)
+
+
+@mcp.tool()
+async def read_portfolio(portfolio_id: str, as_of: str = None) -> dict:
+    """[realtime] 读 L4 离线落库的组合权重/对比1N/容量(委员会与仪表盘只读)。"""
+    return await pit_panel.fetch_portfolio(portfolio_id, as_of)
+
+
+@mcp.tool()
 async def get_quote(symbol: str) -> dict:
     """获取股票/加密货币实时报价（含数据质量标注 data_status；短 TTL 缓存 + 按源指标）。symbol 形如 ASHARE:600519 / US:AAPL / CRYPTO:BTCUSDT。"""
     market, _ = finance.split_symbol(symbol)

@@ -174,6 +174,29 @@ def pit_universe(date: str, lsy_filter: str = "off"):
     return db.universe(DB_PATH, date, lsy_filter)
 
 
+@app.post("/pit/factor_eval")
+def pit_add_factor_eval(row: dict):
+    db.add_factor_eval(DB_PATH, row)
+    return {"ok": True}
+
+
+@app.get("/pit/factor_eval")
+def pit_read_factor_eval(factor_name: str, as_of: str = None, universe_filter: str = "lsy"):
+    return (db.read_factor_eval(DB_PATH, factor_name, as_of, universe_filter)
+            or {"factor_name": factor_name, "significant": None, "abstain_reason": "data_missing"})
+
+
+@app.post("/pit/portfolio")
+def pit_add_portfolio(row: dict):
+    db.add_portfolio(DB_PATH, row)
+    return {"ok": True}
+
+
+@app.get("/pit/portfolio")
+def pit_read_portfolio(portfolio_id: str, as_of: str = None):
+    return db.read_portfolio(DB_PATH, portfolio_id, as_of) or {"error": "not_found"}
+
+
 @app.get("/pit/asof")
 def pit_asof(symbol: str, field: str, date: str, kind: str = "panel"):
     r = (db.asof_fundamental(DB_PATH, symbol, field, date) if kind == "fundamental"

@@ -52,6 +52,37 @@ def test_asof_tiebreak_same_announce_date_returns_newest_period(tmp_path):
     assert r["value"] == 0.22 and r["period"] == "2024Q1"   # period DESC tie-break
 
 
+def test_factor_eval_write_read(tmp_path):
+    """L2 离线批落库 → 委员会只读：写入因子评估行, 按 (factor, universe_filter) 取最新 as_of。"""
+    db = _db()
+    p = str(tmp_path / "fe.db")
+    db.init_db(p)
+    db.add_factor_eval(p, {"factor_name": "Mom", "family": "momentum", "as_of": "2024-05-01",
+                           "horizon": 20, "n_quantiles": 5, "neutralize_variant": "ind_size",
+                           "rebalance": 20, "universe_filter": "lsy", "mean_rank_ic": 0.03,
+                           "significant": 1, "family_verdict": "衰减中", "computed_at": "2024-05-01"})
+    db.add_factor_eval(p, {"factor_name": "Mom", "family": "momentum", "as_of": "2024-06-01",
+                           "horizon": 20, "n_quantiles": 5, "neutralize_variant": "ind_size",
+                           "rebalance": 20, "universe_filter": "lsy", "mean_rank_ic": 0.05,
+                           "significant": 1, "family_verdict": "有效稳定", "computed_at": "2024-06-01"})
+    r = db.read_factor_eval(p, "Mom", universe_filter="lsy")
+    assert r["mean_rank_ic"] == 0.05 and r["family_verdict"] == "有效稳定"   # 取最新 as_of
+    assert db.read_factor_eval(p, "Mom", as_of="2024-05-15", universe_filter="lsy")["mean_rank_ic"] == 0.03
+    assert db.read_factor_eval(p, "NoSuch") is None
+
+
+def test_portfolio_write_read(tmp_path):
+    db = _db()
+    p = str(tmp_path / "pf.db")
+    db.init_db(p)
+    db.add_portfolio(p, {"portfolio_id": "csi800_erc", "as_of": "2024-06-01", "method": "erc",
+                         "weights_json": "{\"600519\": 0.5}", "beats_1overN": None,
+                         "cov_method": "lw", "computed_at": "2024-06-01"})
+    r = db.read_portfolio(p, "csi800_erc")
+    assert r["method"] == "erc" and r["beats_1overN"] is None
+    assert db.read_portfolio(p, "nope") is None
+
+
 def test_asof_panel(tmp_path):
     db = _db()
     p = str(tmp_path / "pn.db")

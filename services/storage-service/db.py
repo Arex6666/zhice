@@ -288,6 +288,57 @@ def asof_panel(path, symbol, field, as_of):
         return dict(r) if r else None
 
 
+_FE_COLS = ["factor_name", "family", "as_of", "horizon", "n_quantiles", "neutralize_variant",
+            "rebalance", "universe_filter", "mean_rank_ic", "icir", "ic_t_hac", "ic_block_boot_p",
+            "monotonic_spearman", "long_only_excess", "long_only_block_boot_p",
+            "ls_research_only_sharpe", "turnover", "ic_half_life", "bh_passed", "harvey_passed",
+            "dsr_optimistic", "dsr_conservative", "n_trials", "var_sr_trials", "family_verdict",
+            "residual_incremental_ic", "significant", "abstain_reason", "computed_at"]
+_FE_PK_DEFAULT = {"horizon": 0, "n_quantiles": 5, "neutralize_variant": "", "rebalance": 0,
+                  "universe_filter": "all"}
+_PF_COLS = ["portfolio_id", "as_of", "method", "weights_json", "beats_1overN", "excess_block_boot_p",
+            "cov_method", "cov_delta", "capacity_flag", "fallback_reason", "computed_at"]
+
+
+def add_factor_eval(path, row):
+    """L2 离线批落库一条因子评估（缺失列填 None；PK 列有默认值防 NULL 重复）。"""
+    vals = [row.get(k, _FE_PK_DEFAULT.get(k)) for k in _FE_COLS]
+    with _conn(path) as c:
+        c.execute(f"INSERT OR REPLACE INTO factor_eval({','.join(_FE_COLS)}) "
+                  f"VALUES({','.join('?' * len(_FE_COLS))})", vals)
+
+
+def read_factor_eval(path, factor_name, as_of=None, universe_filter="lsy"):
+    """委员会只读：取 (factor, universe_filter) 的最新评估（as_of<=给定时点，或全局最新）。"""
+    with _conn(path) as c:
+        if as_of:
+            r = c.execute("SELECT * FROM factor_eval WHERE factor_name=? AND universe_filter=? "
+                          "AND as_of<=? ORDER BY as_of DESC LIMIT 1",
+                          (factor_name, universe_filter, as_of)).fetchone()
+        else:
+            r = c.execute("SELECT * FROM factor_eval WHERE factor_name=? AND universe_filter=? "
+                          "ORDER BY as_of DESC LIMIT 1", (factor_name, universe_filter)).fetchone()
+        return dict(r) if r else None
+
+
+def add_portfolio(path, row):
+    vals = [row.get(k) for k in _PF_COLS]
+    with _conn(path) as c:
+        c.execute(f"INSERT OR REPLACE INTO portfolios({','.join(_PF_COLS)}) "
+                  f"VALUES({','.join('?' * len(_PF_COLS))})", vals)
+
+
+def read_portfolio(path, portfolio_id, as_of=None):
+    with _conn(path) as c:
+        if as_of:
+            r = c.execute("SELECT * FROM portfolios WHERE portfolio_id=? AND as_of<=? "
+                          "ORDER BY as_of DESC LIMIT 1", (portfolio_id, as_of)).fetchone()
+        else:
+            r = c.execute("SELECT * FROM portfolios WHERE portfolio_id=? "
+                          "ORDER BY as_of DESC LIMIT 1", (portfolio_id,)).fetchone()
+        return dict(r) if r else None
+
+
 def add_membership(path, date, symbol, weight, index_code, universe_pit_status, name=""):
     with _conn(path) as c:
         c.execute(

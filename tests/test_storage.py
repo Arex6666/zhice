@@ -63,6 +63,28 @@ def test_pit_endpoints(tmp_path, monkeypatch):
         assert r0["value"] is None and r0["abstain_reason"] == "data_missing"
 
 
+def test_pit_factor_eval_and_portfolio_endpoints(tmp_path, monkeypatch):
+    """L2/L4 离线产物落库 + 委员会只读端点。"""
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "feapi.db"))
+    import importlib
+    import sys
+    sys.path.insert(0, "services/storage-service")
+    app_mod = importlib.import_module("app")
+    importlib.reload(app_mod)
+    from fastapi.testclient import TestClient
+    with TestClient(app_mod.app) as cli:
+        assert cli.post("/pit/factor_eval", json={
+            "factor_name": "Mom", "as_of": "2024-06-01", "universe_filter": "lsy",
+            "mean_rank_ic": 0.05, "significant": 1, "family_verdict": "有效稳定"}).status_code == 200
+        r = cli.get("/pit/factor_eval", params={"factor_name": "Mom", "universe_filter": "lsy"}).json()
+        assert r["mean_rank_ic"] == 0.05 and r["family_verdict"] == "有效稳定"
+        miss = cli.get("/pit/factor_eval", params={"factor_name": "Zzz"}).json()
+        assert miss["significant"] is None and miss["abstain_reason"] == "data_missing"
+        assert cli.post("/pit/portfolio", json={"portfolio_id": "x", "as_of": "2024-06-01",
+                                                "method": "erc", "weights_json": "{}"}).status_code == 200
+        assert cli.get("/pit/portfolio", params={"portfolio_id": "x"}).json()["method"] == "erc"
+
+
 def test_watchlist_write_and_delete(tmp_path, monkeypatch):
     """自选股写路径：POST 新增 / DELETE 删除（此前只有 GET，标的硬编码）。"""
     monkeypatch.setenv("DB_PATH", str(tmp_path / "wl.db"))
