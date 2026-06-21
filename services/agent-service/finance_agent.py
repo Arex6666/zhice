@@ -140,6 +140,10 @@ async def analyze(symbol, mode="deep"):
         result["ml"] = ml
         result["backtest"] = data.get("backtest")        # 含净值曲线/显著性，供仪表盘
         result["vol_regime"] = data.get("vol_regime")    # 已实现波动区间(R8)
+        # 复用本次会话已取的报价/新闻/信号 → 仪表盘无需再单独打 /quote /news（省并发外部调用）
+        result["quote"] = data.get("quote")
+        result["news"] = data.get("news")
+        result["signals"] = data.get("signals")
         # 落库供自审计
         try:
             price = (data.get("quote") or {}).get("price")

@@ -65,6 +65,39 @@ def parse_sina_quote(text):
             "volume": num(8), "ts": ts, "source": "sina"}
 
 
+def _is_sina_index(sina_code):
+    """指数代码：sh000xxx（上证综指/沪深300/中证500/科创50…）或 sz399xxx（深成指/创业板指）。
+
+    实测：sina 指数行与个股**同字段布局**（名称,今开,昨收,现价,…,日期,时间），故同用 parse_sina_quote，
+    仅打 is_index 标记供前端区分（脉搏条 vs 个股墙）。
+    """
+    return sina_code.startswith("sh000") or sina_code.startswith("sz399")
+
+
+def parse_sina_multi(text):
+    """解析一次 sina list= 调用返回的**多标的**行情（个股 + 指数混合，同字段布局）。
+
+    返回 {sina_code: quote}（sina_code 形如 sh600519/sz000858/sh000001）；指数额外带 is_index=True。
+    无法解析的行（空行/垃圾）跳过。
+    """
+    out = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("var hq_str_") or '="' not in line:
+            continue
+        sina_code = line[len("var hq_str_"):].split("=", 1)[0].strip()
+        if not sina_code:
+            continue
+        try:
+            q = parse_sina_quote(line)
+        except (IndexError, ValueError):
+            continue
+        if _is_sina_index(sina_code):
+            q["is_index"] = True
+        out[sina_code] = q
+    return out
+
+
 def _em_kline_rows(klines, adjust):
     """东方财富 K 线行 -> 标准 OHLCV dict，并标注实际复权口径 adjust_actual。"""
     out = []
@@ -87,6 +120,11 @@ def _ashare_sina_code(code):
     return ("sh" if code[0] == "6" else "sz") + code
 
 
+def _sina_code_any(code):
+    """个股 6 位代码 → 加 sh/sz 前缀；已带前缀（指数如 sh000001）原样返回。"""
+    return code if code[:2] in ("sh", "sz") else _ashare_sina_code(code)
+
+
 # ----------------------------------------------------------------- adapters
 class MarketAdapter:
     async def get_quote(self, code):
@@ -106,6 +144,18 @@ class AshareAdapter(MarketAdapter):
             r = await aget(c, url)
             r.encoding = "gbk"
             return parse_sina_quote(r.text)
+
+    async def get_quotes_batch(self, codes):
+        """一次 sina list= 调用拿多标的（个股+指数）。返回 {输入code: quote}；缺失项省略。"""
+        if not codes:
+            return {}
+        sina_codes = [_sina_code_any(c) for c in codes]
+        url = "https://hq.sinajs.cn/list=" + ",".join(sina_codes)
+        async with httpx.AsyncClient(timeout=12, headers=SINA_HEADERS) as c:
+            r = await aget(c, url)
+            r.encoding = "gbk"
+            parsed = parse_sina_multi(r.text)
+        return {c: parsed[sc] for c, sc in zip(codes, sina_codes) if sc in parsed}
 
     async def get_kline(self, code, period="daily", count=120, adjust="qfq"):
         # 主源：东方财富 push2his JSON；失败回退 新浪 K 线 JSON（多源容错）

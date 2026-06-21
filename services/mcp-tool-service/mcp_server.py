@@ -47,6 +47,8 @@ _ASHARE_INDEX = "ASHARE:sh000001"  # 上证指数（跨资产 β 默认基准）
 METRICS = obs.Metrics()                 # 按数据源 调用/错误/命中/延迟
 _QUOTE_CACHE = obs.TTLCache()           # 实时报价短 TTL 缓存（降限流风险）
 _QUOTE_TTL = {"ASHARE": 30, "US": 60, "CRYPTO": 15}  # 各市场缓存秒数
+_KLINE_CACHE = obs.TTLCache()           # K线缓存（图表+指标共享, 减外源重复调用; 日K日内变动小）
+_KLINE_TTL = 180
 
 HOST = os.getenv("MCP_HOST", "0.0.0.0")
 PORT = int(os.getenv("MCP_PORT", "8002"))
@@ -121,23 +123,70 @@ async def get_quote(symbol: str) -> dict:
 
 
 @mcp.tool()
+async def get_quotes_batch(symbols: list) -> list:
+    """[realtime] 批量实时行情（仪表盘盯盘墙用）：A股个股+指数经**单次 sina 调用**取回，含 data_status/change_pct。
+
+    symbols 形如 ['ASHARE:600519','ASHARE:000858','ASHARE:sh000001']。非 A 股逐个回退 get_quote。
+    """
+    ashare_codes, ashare_syms, others = [], [], []
+    for s in symbols:
+        try:
+            market, code = finance.split_symbol(s)
+        except Exception:
+            others.append(s)
+            continue
+        (ashare_syms.append(s) or ashare_codes.append(code)) if market == "ASHARE" else others.append(s)
+    out = []
+    if ashare_codes:
+        try:
+            raw = await finance.get_adapter("ASHARE").get_quotes_batch(ashare_codes)
+        except Exception:
+            raw = {}
+        for s, code in zip(ashare_syms, ashare_codes):
+            q = raw.get(code)
+            if not q:
+                out.append({"symbol": s, "error": "no_quote", "data_status": "error"})
+                continue
+            q = _enrich_quote(q, "ASHARE")   # data_status(据真实 ts) + change_pct（个股/指数一致重算）
+            q["symbol"] = s
+            out.append(q)
+    for s in others:
+        try:
+            out.append({**(await get_quote(s)), "symbol": s})
+        except Exception:
+            out.append({"symbol": s, "error": "no_quote", "data_status": "error"})
+    return out
+
+
+@mcp.tool()
 async def data_source_metrics() -> dict:
     """数据源健康：按源的 调用/错误率/缓存命中率/延迟（可观测性 §10）。"""
     return METRICS.snapshot()
 
 
+async def _fetch_kline(symbol, period="daily", count=120, adjust="qfq"):
+    """带 TTL 缓存的 K 线取数（图表与指标共享，杜绝同一研判内重复打外部源；外源慢/限流时显著提速）。"""
+    key = f"kl|{symbol}|{period}|{count}|{adjust}"
+    cached = _KLINE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    market, code = finance.split_symbol(symbol)
+    kl = await finance.get_adapter(market).get_kline(code, period, count, adjust)
+    if kl:
+        _KLINE_CACHE.set(key, kl, _KLINE_TTL)
+    return kl
+
+
 @mcp.tool()
 async def get_kline(symbol: str, period: str = "daily", count: int = 120, adjust: str = "qfq") -> list:
     """获取 K 线 OHLCV 历史。adjust ∈ {qfq 前复权, hfq 后复权, none}。"""
-    market, code = finance.split_symbol(symbol)
-    return await finance.get_adapter(market).get_kline(code, period, count, adjust)
+    return await _fetch_kline(symbol, period, count, adjust)
 
 
 @mcp.tool()
 async def get_indicators(symbol: str, period: str = "daily") -> dict:
     """计算技术指标 MA/MACD/RSI/BOLL/量能（基于 K 线）。"""
-    market, code = finance.split_symbol(symbol)
-    kl = await finance.get_adapter(market).get_kline(code, period, 120)
+    kl = await _fetch_kline(symbol, period, 120, "qfq")
     closes = [r["close"] for r in kl]
     vols = [r["volume"] for r in kl]
     return indicators.compute_indicators(closes, volumes=vols)

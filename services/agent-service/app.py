@@ -58,6 +58,14 @@ async def finance_news(symbol: str, limit: int = 8):
     return await finance_agent.mcp_tool("get_stock_news", {"symbol": symbol, "limit": limit})
 
 
+@app.get("/finance/board")
+async def finance_board(symbols: str):
+    """盯盘墙批量行情：一次 MCP 会话 → 单次 sina 批量调用，返回多标的报价数组。"""
+    import finance_agent
+    syms = [s.strip() for s in symbols.split(",") if s.strip()]
+    return await finance_agent.mcp_tool("get_quotes_batch", {"symbols": syms})
+
+
 @app.get("/status")
 def status():
     return {"service": "agent-service", "status": "ok"}
