@@ -13,6 +13,28 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PRICE_VOLUME_FACTORS = ["Mom_12_1", "Rev_5", "TotalVol", "Amihud"]
 
 
+def parse_universe(rows, limit=None):
+    """中证成分 df 行 → 6 位代码列表（防御兼容多列名；limit 截断便于测试/限流）。"""
+    out = []
+    for r in rows:
+        s = (r.get("成分券代码") or r.get("品种代码") or r.get("证券代码")
+             or r.get("symbol") or r.get("con_code"))
+        if s is not None and str(s).strip():
+            out.append(str(s).strip().split(".")[0].zfill(6))
+    return out[:limit] if limit else out
+
+
+def _fetch_universe(index="000300", limit=None, fetch_fn=None):
+    """拉指数成分（默认中证300 via akshare index_stock_cons_csindex）。fetch_fn 注入以脱网测。"""
+    if fetch_fn is None:
+        import akshare as ak
+        def fetch_fn():
+            return ak.index_stock_cons_csindex(symbol=index)
+    df = fetch_fn()
+    rows = df.to_dict("records") if hasattr(df, "to_dict") else list(df)
+    return parse_universe(rows, limit)
+
+
 def run_batch(klines_by_symbol, factor_report_fn, build_panels_fn, post_fn,
               factors, as_of, universe_filter="lsy"):
     """依赖注入的批核心：逐因子建面板→评估→post。返回 {posted, failures, results}。"""
@@ -53,7 +75,15 @@ def main(symbols=None, as_of=None, post=True):
     import factor_eval
     import zoo
     factors = list(zoo.FACTORS)   # 评估全部 history_native 价量因子(随 zoo 扩展自动同步)
-    symbols = symbols or ["600519", "000001", "600036", "601318", "000858", "600000"]
+    if symbols is None:           # 默认评估池：中证300 全池(UNIVERSE_LIMIT 可截断, 限流/测试用)
+        index = os.getenv("UNIVERSE_INDEX", "000300")
+        lim = os.getenv("UNIVERSE_LIMIT")
+        try:
+            symbols = _fetch_universe(index, int(lim) if lim else None)
+            print(f"universe={index}: {len(symbols)} symbols (limit={lim or 'none'})")
+        except Exception as e:  # noqa: BLE001 - 取池失败回退小样本(不崩)
+            print(f"  universe fetch failed ({type(e).__name__}); fallback small set")
+            symbols = ["600519", "000001", "600036", "601318", "000858", "600000"]
     as_of = as_of or datetime.date.today().isoformat()
     storage = os.getenv("STORAGE_URL", "http://localhost:8003").rstrip("/")
 
