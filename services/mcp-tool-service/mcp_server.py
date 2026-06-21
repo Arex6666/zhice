@@ -11,6 +11,8 @@
 import os
 import time
 
+import anyio
+
 import httpx
 from mcp.server.fastmcp import FastMCP
 
@@ -25,6 +27,18 @@ import seasonality as seasonality_lib
 import news_cluster as news_cluster_lib
 import obs
 import pit_panel
+# —— 多因子选股引擎（L1–L6 纯函数） ——
+import zoo as zoo_lib
+import preprocess as preprocess_lib
+import factor_eval as factor_eval_lib
+import factor_combine as factor_combine_lib
+import portfolio as portfolio_lib
+import risk_model as risk_model_lib
+import qvix_timing as qvix_lib
+import regime_overlay as regime_lib
+import ic_audit as ic_audit_lib
+import factor_gate as factor_gate_lib
+import multi_test as multi_test_lib
 
 _ASHARE_INDEX = "ASHARE:sh000001"  # 上证指数（跨资产 β 默认基准）
 
@@ -212,6 +226,100 @@ async def market_overview(market: str = "ASHARE") -> dict:
                 out[name] = {"price": q["price"], "prev_close": q["prev_close"]}
         return {"market": market, "indices": out}
     return {"market": market, "note": "该市场概览暂以个股为主"}
+
+
+# ============================ 多因子选股 MCP 工具 ============================
+# realtime=轻量, 委员会 SSE 可直调; offline=重计算, 仅 scheduler 直调落库, 委员会硬拒(§3.4)。
+async def _offload(fn, *a, **k):
+    return await anyio.to_thread.run_sync(lambda: fn(*a, **k))
+
+
+@mcp.tool()
+async def list_factor_universe() -> list:
+    """[realtime] 列出价量因子库(名称/方向/家族/PIT状态)。"""
+    return zoo_lib.list_factors()
+
+
+@mcp.tool()
+async def compute_factor_series(factor_name: str, closes: list, opens: list = None,
+                                highs: list = None, lows: list = None, volumes: list = None) -> dict:
+    """[realtime] 用 DSL 计算命名价量因子时序(末值对齐)。"""
+    data = {"C": closes, "O": opens or closes, "H": highs or closes,
+            "L": lows or closes, "V": volumes or [1.0] * len(closes)}
+    vals = zoo_lib.compute(factor_name, data)
+    return {"factor": factor_name, "values": [None if v != v else float(v) for v in vals],
+            "execution_mode": "realtime", **{k: v for k, v in zoo_lib.FACTORS[factor_name].items() if k != "formula"}}
+
+
+@mcp.tool()
+async def preprocess_cross_section(values: list, industries: list, ln_mktcap: list) -> dict:
+    """[realtime] 逐截面预处理: MAD去极值→z-score→行业+ln市值中性化(残差)。"""
+    w = preprocess_lib.mad_winsorize(values)
+    z = preprocess_lib.zscore(w)
+    return {**preprocess_lib.neutralize(z, industries, ln_mktcap), "execution_mode": "realtime"}
+
+
+@mcp.tool()
+async def combine_factors(panel: dict, directions: dict = None, ic_weights: dict = None) -> dict:
+    """[realtime] 线性因子合成(等权/IC加权, 按方向)。"""
+    return {"score": factor_combine_lib.combine(panel, directions, ic_weights),
+            "execution_mode": "realtime"}
+
+
+@mcp.tool()
+async def get_qvix_timing(qvix_series: list, window: int = 250) -> dict:
+    """[realtime] QVIX 隐含波动率分位→择时区间(沪深300恐慌代理)。"""
+    return {**qvix_lib.qvix_level(qvix_series, window), "execution_mode": "realtime"}
+
+
+@mcp.tool()
+async def get_regime_overlay(vol_regime: str, qvix_level: str, floor: float = 0.5) -> dict:
+    """[realtime] 已实现波动+QVIX→仓位乘子(只减不加, 取min)。"""
+    return {**regime_lib.target_scale(vol_regime, qvix_level, floor), "execution_mode": "realtime"}
+
+
+@mcp.tool()
+async def ic_self_audit(ic_series: list) -> dict:
+    """[realtime] IC 时序自审: ICIR/子区间一致/近期漂移→verdict(纯诊断)。"""
+    return {**ic_audit_lib.audit(ic_series), "execution_mode": "realtime"}
+
+
+@mcp.tool()
+async def factor_report(factor_panel: list, fwd_panel: list, n_quantiles: int = 5) -> dict:
+    """[offline] 单因子诊断: Rank-IC/ICIR/HAC-t/分层单调+显著性硬判定(scheduler 直调落库)。"""
+    return {**await _offload(factor_eval_lib.factor_report, factor_panel, fwd_panel, n_quantiles),
+            "execution_mode": "offline"}
+
+
+@mcp.tool()
+async def factor_family_gate(reports: list, alpha: float = 0.05) -> dict:
+    """[offline] 因子家族 BH-FDR+Harvey 联合闸门。"""
+    return {"gated": await _offload(factor_gate_lib.family_gate, reports, alpha),
+            "execution_mode": "offline"}
+
+
+@mcp.tool()
+async def deflated_sharpe(sr: float, n_trials: int, var_sr_trials: float = None,
+                          n_obs: int = 252) -> dict:
+    """[offline] Deflated Sharpe(N与Var(SR_trials)同源, §7.2)。"""
+    return {**await _offload(multi_test_lib.deflated_sharpe, sr, n_trials, var_sr_trials),
+            "execution_mode": "offline"}
+
+
+@mcp.tool()
+async def build_portfolio(symbols: list, returns_panel: list, method: str = "hrp",
+                          scores: list = None) -> dict:
+    """[offline] 组合构建(HRP默认/ERC/MVO收窄池)。"""
+    return {**await _offload(portfolio_lib.build_portfolio, symbols, scores, returns_panel, method),
+            "execution_mode": "offline"}
+
+
+@mcp.tool()
+async def risk_attribution(weights: list, exposures: list, factor_cov: list,
+                           specific_var: list) -> dict:
+    """[offline] Barra Σ=BFB'+D 风险归因(系统/特质)。"""
+    return {**await _offload(risk_model_lib.risk_attribution, weights, exposures, factor_cov, specific_var),
+            "execution_mode": "offline"}
 
 
 if __name__ == "__main__":
