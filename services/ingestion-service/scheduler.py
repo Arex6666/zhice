@@ -212,6 +212,21 @@ async def pull_news():
                 failures += 1
 
 
+async def snapshot_pit():
+    """每日 PIT 快照：拉中证成分 + 估值 → 写 storage /pit/*（多因子选股数据地基）。"""
+    global failures
+    _touch()
+    try:
+        import pit_snapshot
+        as_of = datetime.now(_SHANGHAI).date().isoformat()
+        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+            wl = await _get_watchlist(client)
+        syms = [(it.get("symbol") or "").split(":")[-1] for it in wl if _is_ashare(it)]
+        await pit_snapshot.run_snapshots(as_of, [s for s in syms if s])
+    except Exception:  # noqa: BLE001 - 快照失败只计数, 不拖垮调度器
+        failures += 1
+
+
 async def scan_alerts():
     """扫描 watchlist，单日涨跌幅 >=阈值 则上报 big_move 告警（交易时段 + 按日去重，防告警风暴）。"""
     global alerts_raised, failures
@@ -272,6 +287,8 @@ def start() -> AsyncIOScheduler:
                   id="scan_alerts", max_instances=1, coalesce=True)
     sched.add_job(pull_news, "interval", seconds=NEWS_INTERVAL_SEC,
                   id="pull_news", max_instances=1, coalesce=True)
+    sched.add_job(snapshot_pit, "interval", seconds=int(os.getenv("PIT_SNAPSHOT_SEC", "86400")),
+                  id="snapshot_pit", max_instances=1, coalesce=True)
     sched.start()
     _scheduler = sched
     return sched

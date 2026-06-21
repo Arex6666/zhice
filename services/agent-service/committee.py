@@ -202,7 +202,8 @@ async def _cross_examine(members, llm, model):
     return f"R9: 交叉质询「{dom.get('lens', '?')}」→ 未能以新实质证据反驳对立观点，降级为中性"
 
 
-async def run_committee(symbol, gather_fn, llm, model, ml=None):
+async def run_committee(symbol, gather_fn, llm, model, ml=None,
+                        factor_votes=None, factor_flags=None, portfolio_flags=None):
     data = await gather_fn(symbol)
     blob = f"标的 {symbol}。数据(部分含data_status={data.get('data_status')}):\n" + json.dumps(
         {k: data.get(k) for k in ("indicators", "signals", "news", "backtest", "market")},
@@ -214,6 +215,10 @@ async def run_committee(symbol, gather_fn, llm, model, ml=None):
     mlm = _ml_member(ml)
     if mlm:
         members.append(mlm)
+    # 量化因子/另类/盈利修正分析师（§10.3 stat 票，离线 factor_eval 产物经依赖注入）
+    for fv in (factor_votes or []):
+        if fv and not fv.get("abstain"):
+            members.append(fv)
 
     # 独立重核新闻证据类型（不轻信 LLM 自报）
     _reverify_evidence_types(members)
@@ -222,7 +227,8 @@ async def run_committee(symbol, gather_fn, llm, model, ml=None):
 
     gov = governance.govern(members, data.get("data_status", "fresh"), ml,
                             bool(data.get("backtest_stable", True)),
-                            vol_regime=data.get("vol_regime"))
+                            vol_regime=data.get("vol_regime"),
+                            factor_flags=factor_flags, portfolio_flags=portfolio_flags)
     if xexam_note:
         gov["report"].append(xexam_note)
     governed = gov["members_adjusted"]

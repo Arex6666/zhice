@@ -119,6 +119,31 @@ def test_ml_member_evidence_tagged_model():
     assert mlm["evidence"][0]["type"] == "model"
 
 
+def test_run_committee_wires_factor_vote_and_R10():
+    """端到端：因子委员(§10.3 stat票)入会 → 治理 R10(forward_pit_only)封顶 → 主席置信度受限。"""
+    com = _committee()
+    member = {"verdict": "中性", "confidence": 0.5,
+              "evidence": [{"type": "indicator", "source": "x", "value": "y", "interpretation": "z"}],
+              "counter_evidence": [], "risks": [], "abstain": False, "abstain_reason": None}
+    chair = {"final": "偏多", "confidence": 0.8, "confidence_reason": "因子支持"}
+    llm = FakeLLM([member, member, member, member, chair])
+    fe = {"factor_name": "Mom", "family_verdict": "有效稳定", "significant": 1,
+          "direction": "+", "mean_rank_ic": 0.05}
+    fvote = com.factor_member_vote(fe, stock_quantile=4, residual_quantile=4)
+    flags = [{"factor": "Mom", "pit_status": "forward_pit_only", "history_depth": 300, "bh_passed": True}]
+
+    async def gather(sym):
+        return {"indicators": {}, "signals": {}, "news": [], "backtest": {},
+                "market": {}, "data_status": "fresh", "backtest_stable": True}
+
+    out = asyncio.run(com.run_committee("ASHARE:600519", gather, llm, "m", ml=None,
+                                        factor_votes=[fvote], factor_flags=flags))
+    assert any("量化因子" in m["lens"] for m in out["members"])   # 因子委员入会
+    assert out["verdict"] == "偏多"
+    assert out["confidence"] <= 0.65                              # R10 封顶
+    assert any("R10" in x for x in out["governance_report"])
+
+
 def test_factor_member_vote_three_gates_pass():
     """§10.3 三闸全过(family有效稳定+显著 AND 极端分位 AND 控制风格后仍极端)→出 stat 证据。"""
     com = _committee()
