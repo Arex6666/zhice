@@ -348,6 +348,15 @@ async def compute_factor_series(factor_name: str, closes: list, opens: list = No
 
 
 @mcp.tool()
+async def compute_factors_last(closes: list, opens: list = None, highs: list = None,
+                              lows: list = None, volumes: list = None) -> dict:
+    """[realtime] 一次算出全部价量因子的**末值**(供单股 xsec GBDT 组装特征向量)。预热不足→null。"""
+    data = {"C": closes, "O": opens or closes, "H": highs or closes,
+            "L": lows or closes, "V": volumes or [1.0] * len(closes)}
+    return {"last": zoo_lib.compute_all_last(data), "execution_mode": "realtime"}
+
+
+@mcp.tool()
 async def preprocess_cross_section(values: list, industries: list, ln_mktcap: list) -> dict:
     """[realtime] 逐截面预处理: MAD去极值→z-score→行业+ln市值中性化(残差)。"""
     w = preprocess_lib.mad_winsorize(values)

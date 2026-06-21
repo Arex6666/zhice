@@ -54,8 +54,9 @@ def main(symbols=None, factor_names=None, out=None):  # pragma: no cover - 真�
     sys.path.insert(0, os.path.join(ROOT, "services", "mcp-tool-service"))
     import factor_eval
     import finance
+    import zoo
     symbols = symbols or ["600519", "000001", "600036", "601318", "000858", "600000"]
-    factor_names = factor_names or ["Mom_12_1", "Rev_5", "TotalVol", "Amihud"]
+    factor_names = factor_names or list(zoo.FACTORS)   # 16 价量因子, 与委员会 xsec 推理特征对齐
     out = out or os.path.join(ROOT, "services", "agent-service", "models", "xsec_ASHARE.pkl")
 
     async def _fetch():
@@ -63,7 +64,7 @@ def main(symbols=None, factor_names=None, out=None):  # pragma: no cover - 真�
         kl = {}
         for s in symbols:
             try:
-                kl[s] = await ad.get_kline(s, "daily", 250)
+                kl[s] = await ad.get_kline(s, "daily", 400)   # >252 才能算长窗因子(Mom_12_1/Hi52)
             except Exception as e:  # noqa: BLE001
                 print(f"  {s}: skip ({type(e).__name__})")
         return kl

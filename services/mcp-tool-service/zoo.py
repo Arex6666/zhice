@@ -4,6 +4,8 @@
 preprocess/altfactors + PIT 数据层供数（forward_pit_only，初期弃权，见 spec §5）。
 每因子带 direction/family/pit_status 元数据，随值穿全链路（诚实标签）。
 """
+import numpy as np
+
 import factor_dsl
 
 # formula 为 DSL 字符串，变量取自 K 线 {C,O,H,L,V}
@@ -53,6 +55,18 @@ def compute(name, data):
     if name not in FACTORS:
         raise KeyError(f"未知因子: {name}")
     return factor_dsl.evaluate(FACTORS[name]["formula"], data)
+
+
+def compute_all_last(data):
+    """一次算出全部因子的**末值**（供单股 xsec 推理组装特征向量）。预热不足/非有限 → None。"""
+    out = {}
+    for name in FACTORS:
+        try:
+            v = np.asarray(compute(name, data), dtype=float)
+            out[name] = float(v[-1]) if (len(v) and np.isfinite(v[-1])) else None
+        except Exception:  # noqa: BLE001 - 单因子失败不影响其余
+            out[name] = None
+    return out
 
 
 def list_factors():

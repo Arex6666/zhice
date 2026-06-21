@@ -61,6 +61,44 @@ async def _gather(symbol, session):
             "quote": q, "data_status": data_status, "backtest_stable": _backtest_trustworthy(bt)}
 
 
+async def _xsec_vote(session, symbol):
+    """L3 GBDT 横截面打分(单股推理, agent 同栈; §3.3 工件契约)。模型缺/契约不过/特征不足 → 诚实弃权。
+
+    用户选定方案：委员会内单股推理。诚实局限——单股裸分非全池相对排名，方向仅低置信参考。
+    """
+    import xsec_model
+    path = os.path.join(os.getenv("XSEC_MODEL_DIR", "/models"), f"xsec_{_market(symbol)}.pkl")
+    loaded = xsec_model.load_or_abstain(path)
+    if loaded["model"] is None:   # 模型缺失/契约不过 → 不打无谓的取数, 直接弃权
+        return {"lens": "L3 GBDT横截面打分", "verdict": "中性", "confidence": 0.0, "evidence": [],
+                "abstain": True, "abstain_reason": loaded["abstain_reason"] or "model_missing"}
+    scores = None
+    try:
+        kl = await mcp_client.call_tool_data(session, "get_kline", {"symbol": symbol, "count": 260})
+        if isinstance(kl, list) and len(kl) >= 60:
+            ohlcv = {"closes": [r["close"] for r in kl],
+                     "opens": [r.get("open", r["close"]) for r in kl],
+                     "highs": [r.get("high", r["close"]) for r in kl],
+                     "lows": [r.get("low", r["close"]) for r in kl],
+                     "volumes": [r.get("volume", 0) for r in kl]}
+            res = await mcp_client.call_tool_data(session, "compute_factors_last", ohlcv)
+            last = (res or {}).get("last") or {}
+            scores = loaded["model"].predict_scores({k: [v] for k, v in last.items() if v is not None})
+    except Exception:  # noqa: BLE001 - 推理失败隔离
+        scores = None
+    if not scores:   # 长窗因子末值不足/缺特征列 → 弃权(非伪造)
+        return {"lens": "L3 GBDT横截面打分", "verdict": "中性", "confidence": 0.0, "evidence": [],
+                "abstain": True, "abstain_reason": "insufficient_history"}
+    s = float(scores[0])
+    verdict = "偏多" if s > 0 else ("偏空" if s < 0 else "中性")
+    return {"lens": "L3 GBDT横截面打分(研究型)", "verdict": verdict, "confidence": 0.2,
+            "evidence": [{"type": "stat", "source": "xsec_gbdt",
+                          "value": f"预测次日收益打分={s:.4f}",
+                          "interpretation": "裸横截面打分(无全池分位), 方向仅低置信参考"}],
+            "counter_evidence": ["缺全池相对分位 → 非真实排名; 研究型不可实盘"],
+            "risks": ["单股裸分受治理 R10/R12 约束"], "abstain": False, "abstain_reason": None}
+
+
 def _ml_vote(symbol, kline):
     cal = SignalCalibrator.load(os.path.join(MODEL_DIR, f"signal_{_market(symbol)}.pkl"))
     feats = build_features(kline) if isinstance(kline, list) and kline else None
@@ -166,7 +204,9 @@ async def analyze(symbol, mode="deep"):
         async def gather_fn(_):
             return data
 
-        result = await committee.run_committee(symbol, gather_fn, llm, model, ml=ml)
+        xsec_vote = await _xsec_vote(session, symbol)   # L3 GBDT 单股推理 → stat 票(缺模型则弃权跳过)
+        result = await committee.run_committee(symbol, gather_fn, llm, model, ml=ml,
+                                               factor_votes=[xsec_vote])
         result["mode"] = "deep"
         result["ml"] = ml
         result["backtest"] = data.get("backtest")        # 含净值曲线/显著性，供仪表盘

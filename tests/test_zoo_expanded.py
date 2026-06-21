@@ -44,6 +44,16 @@ def test_every_factor_computes_finite_and_has_honest_metadata():
         assert meta.get("family") and meta.get("desc")
 
 
+def test_compute_all_last_returns_value_per_factor():
+    zoo = _zoo()
+    last = zoo.compute_all_last(_ohlcv())
+    assert set(last) == set(zoo.FACTORS)               # 每因子一个末值
+    assert any(v is not None for v in last.values())   # 至少部分有限
+    # 短历史 → 长窗因子(Mom_12_1 需252)末值应为 None(诚实, 不编造)
+    short = zoo.compute_all_last({k: v[:30] for k, v in _ohlcv().items()})
+    assert short["Mom_12_1"] is None
+
+
 def test_existing_factors_unchanged():
     """既有 4 因子公式/方向不回归（向后兼容）。"""
     zoo = _zoo()
