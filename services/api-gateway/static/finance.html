@@ -327,6 +327,7 @@
         <button class="modebtn active" data-mode="quick">快速体检<small>quick</small></button>
         <button class="modebtn" data-mode="deep">深度研判<small>deep</small></button>
         <button class="modebtn" data-mode="review">复盘<small>review</small></button>
+        <button class="modebtn" data-mode="quant">因子体检<small>quant</small></button>
         <button class="modebtn" data-mode="teach">教学<small>teach</small></button>
         <button class="modebtn ghost" id="statusBtn">系统状态<small>status</small></button>
       </div>
@@ -423,11 +424,11 @@ function curSymbol(){ return ($('symbol').value || '').trim() || 'ASHARE:600519'
 
 async function run(){
   const sym = curSymbol();
-  const teachOrReview = (MODE === 'teach' || MODE === 'review');
+  const teachOrReview = (MODE === 'teach' || MODE === 'review' || MODE === 'quant');
 
   // sections visibility
   $('chartSec').style.display  = teachOrReview ? 'none' : '';
-  $('newsSec').style.display   = (MODE === 'teach' || MODE === 'review') ? 'none' : '';
+  $('newsSec').style.display   = teachOrReview ? 'none' : '';
   $('quotebar').style.display  = teachOrReview ? 'none' : '';
 
   // charts & quote only for quick/deep
@@ -446,6 +447,7 @@ async function run(){
   try {
     if (MODE === 'teach')      return renderTeach(await getJSON('/api/finance/analyze', postBody(sym,'teach')));
     if (MODE === 'review')     return renderReview(await getJSON('/api/finance/analyze', postBody(sym,'review')));
+    if (MODE === 'quant')      return renderQuant();
     const data = await getJSON('/api/finance/analyze', postBody(sym, MODE));
     if (isErr(data)) { A.innerHTML = sectionNotice('研判失败', errMsg(data), true); return; }
     if (MODE === 'quick') renderQuick(data);
@@ -949,6 +951,34 @@ function renderReview(data){
 /* ===================================================================
    TEACH mode
 =================================================================== */
+const QUANT_FACTORS = ["Mom_12_1", "Rev_5", "TotalVol", "Amihud"];
+async function renderQuant(){
+  const A = $('analysis');
+  let rows = '';
+  for (const f of QUANT_FACTORS){
+    let r = {};
+    try { r = await getJSON('/api/factor_eval?factor_name=' + encodeURIComponent(f) + '&universe_filter=lsy'); }
+    catch(e){ r = {}; }
+    const sig = r.significant === 1 ? '显著' : (r.significant === 0 ? '不显著' : '弃权');
+    const off = r.significant !== 1;
+    const verdict = r.family_verdict || r.abstain_reason || '—';
+    rows += '<div class="row"><span>' + esc(f) + '</span>'
+          + '<span>RankIC ' + (r.mean_rank_ic != null ? fmt(r.mean_rank_ic, 4) : '—') + '</span>'
+          + '<span' + (off ? ' style="color:var(--amber)"' : '') + '>' + esc(sig) + '</span>'
+          + '<span>' + esc(verdict) + '</span></div>';
+  }
+  let html = '<section><div class="sec-title">Quant · 因子体检 <span class="cn">多因子选股 · L2 诚实评估</span></div><div class="card">';
+  html += '<div class="bymem"><div class="ev-title">价量因子 IC 体检（中证池 · 剔小票 lsy 口径）</div>'
+        + '<div class="row" style="font-weight:600;opacity:.7"><span>因子</span><span>Rank-IC</span><span>显著性</span><span>家族判定</span></div>'
+        + rows + '</div>';
+  html += '<div class="review-note">因子级 Rank-IC ≠ 个股 alpha 保证（须经 §10.3 三闸映射）；空头腿 A 股不可实现，'
+        + '仅 long-only top 分位超额作判据；另类/估值因子受 PIT 成熟度门约束，历史不足时弃权。'
+        + 'RankIC≈0.05 已属良好（对标 Qlib CSI300/500 真实基准 0.04–0.05）。无数据=离线批未跑/PIT 不足。</div>';
+  html += '</div></section>';
+  A.innerHTML = html;
+  if ($('footDisc')) $('footDisc').textContent = '仅供学习研究，不构成投资建议。研究型，不可实盘。';
+}
+
 function renderTeach(data){
   const A = $('analysis');
   if (isErr(data)){ A.innerHTML = sectionNotice('教学内容加载失败', errMsg(data), true); return; }

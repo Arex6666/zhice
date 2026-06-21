@@ -76,6 +76,30 @@ async def watchlist_delete_proxy(symbol: str):
         return JSONResponse(_safe_json(r), status_code=r.status_code)
 
 
+@app.get("/api/factor_eval")
+async def factor_eval_proxy(factor_name: str, universe_filter: str = "lsy", as_of: str = None):
+    """读 L2 离线落库的因子评估（仪表盘"因子体检"卡用）。"""
+    _metrics["requests"] += 1
+    params = {"factor_name": factor_name, "universe_filter": universe_filter}
+    if as_of:
+        params["as_of"] = as_of
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.get(f"{STORAGE_URL}/pit/factor_eval", params=params)
+        return JSONResponse(_safe_json(r), status_code=r.status_code)
+
+
+@app.get("/api/portfolio")
+async def portfolio_proxy(portfolio_id: str, as_of: str = None):
+    """读 L4 离线落库的组合（仪表盘"组合视图"卡用）。"""
+    _metrics["requests"] += 1
+    params = {"portfolio_id": portfolio_id}
+    if as_of:
+        params["as_of"] = as_of
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.get(f"{STORAGE_URL}/pit/portfolio", params=params)
+        return JSONResponse(_safe_json(r), status_code=r.status_code)
+
+
 @app.get("/api/status")
 async def status():
     out = {"gateway": "ok"}
