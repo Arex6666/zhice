@@ -19,15 +19,19 @@ def _drop_small(cap, frac=0.3):
 
 
 def mkt(rets, cap, rf=0.0):
-    """市值加权市场超额收益。"""
+    """市值加权市场超额收益。停牌(NaN)收益剔除并在有效子集上**重归一权重**(非当 0 计入)；全 NaN 返回 NaN。"""
     rets = np.asarray(rets, dtype=float)
     cap = np.asarray(cap, dtype=float)
-    w = cap / cap.sum() if cap.sum() else np.full(len(cap), 1.0 / len(cap))
-    return float(np.nansum(w * rets) - rf)
+    m = np.isfinite(rets)
+    if not m.any():
+        return float("nan")
+    c = cap[m]
+    w = c / c.sum() if c.sum() else np.full(int(m.sum()), 1.0 / int(m.sum()))
+    return float((w * rets[m]).sum() - rf)
 
 
 def smb(rets, cap, drop_small_frac=0.3):
-    """小市值组 − 大市值组（剔最小 30% 后按中位二分，组内市值加权）。"""
+    """小市值组 − 大市值组（剔最小 30% 后按中位二分，组内市值加权）。中位并列致一腿为空→弃权 0。"""
     rets = np.asarray(rets, dtype=float)
     cap = np.asarray(cap, dtype=float)
     keep = _drop_small(cap, drop_small_frac)
@@ -36,11 +40,13 @@ def smb(rets, cap, drop_small_frac=0.3):
         return 0.0
     med = np.median(c)
     small, big = c <= med, c > med
+    if not small.any() or not big.any():
+        return 0.0
     return float(_cap_w(r[small], c[small]) - _cap_w(r[big], c[big]))
 
 
 def vmg(rets, ep, cap, drop_small_frac=0.3):
-    """高EP(价值) − 低EP(成长)（剔最小30%后按 EP 中位二分，组内市值加权）。"""
+    """高EP(价值) − 低EP(成长)（剔最小30%后按 EP 中位二分）。中位并列致一腿为空→弃权 0。"""
     rets = np.asarray(rets, dtype=float)
     ep = np.asarray(ep, dtype=float)
     cap = np.asarray(cap, dtype=float)
@@ -50,12 +56,21 @@ def vmg(rets, ep, cap, drop_small_frac=0.3):
         return 0.0
     med = np.median(e)
     high, low = e >= med, e < med
+    if not high.any() or not low.any():
+        return 0.0
     return float(_cap_w(r[high], c[high]) - _cap_w(r[low], c[low]))
 
 
 def _cap_w(r, c):
-    s = c.sum()
-    return float(np.nansum((c / s) * r)) if s else float(np.nanmean(r)) if len(r) else 0.0
+    """组内市值加权收益；停牌 NaN 剔除并在有效子集重归一。"""
+    r = np.asarray(r, dtype=float)
+    c = np.asarray(c, dtype=float)
+    m = np.isfinite(r)
+    if not m.any():
+        return 0.0
+    cc, rr = c[m], r[m]
+    s = cc.sum()
+    return float(((cc / s) * rr).sum()) if s else float(rr.mean())
 
 
 def residualize(y, style_matrix):

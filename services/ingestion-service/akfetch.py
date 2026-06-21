@@ -3,6 +3,7 @@
 解析为纯函数（离线 fixture 可测）；真正的网络调用经 anyio.to_thread 卸载（沿用 finance.py 范式）。
 区分 cross_section（一次拿全市场）与 per_symbol（逐标的循环）两类调用粒度。
 """
+import math
 CROSS_SECTION_APIS = {
     "index_stock_cons_csindex": "symbol=指数代码, 无 date 参 → 今日成分快照",
     "stock_zh_a_spot_em": "全市场快照(动态PE/PB/总市值/换手/量比)",
@@ -38,7 +39,7 @@ def _num(x):
         v = float(x)
     except (TypeError, ValueError):
         return None
-    return v
+    return v if math.isfinite(v) else None   # NaN/inf 视为脏值剔除(防伪观测落库)
 
 
 def parse_baidu_valuation(df):

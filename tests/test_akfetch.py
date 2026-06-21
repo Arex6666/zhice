@@ -27,6 +27,14 @@ def test_parse_baidu_valuation():
     assert af.parse_baidu_valuation(pd.DataFrame({"date": ["x"], "value": ["-"]})) == []  # 脏值剔除
 
 
+def test_parse_baidu_valuation_drops_nan_inf():
+    af = _af()
+    import numpy as np
+    df = pd.DataFrame({"date": ["d1", "d2", "d3", "d4"],
+                       "value": [np.nan, "nan", float("inf"), "12.5"]})
+    assert af.parse_baidu_valuation(df) == [{"date": "d4", "value": 12.5}]  # NaN/inf 全剔
+
+
 def test_parse_csindex_cons():
     af = _af()
     df = pd.DataFrame({"品种代码": ["600519", "000001"], "品种名称": ["贵州茅台", "平安银行"],

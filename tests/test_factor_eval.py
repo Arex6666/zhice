@@ -37,6 +37,31 @@ def test_noise_factor_not_significant():
     assert abs(rep["mean_rank_ic"]) < 0.1
 
 
+def test_min_dates_below_bootstrap_floor_abstains_not_zero():
+    fe = _fe()
+    rng = np.random.RandomState(3)
+    fac, ret = [], []
+    for _ in range(15):                              # 15 期 < 块自助底线 20
+        r = rng.randn(50)
+        fac.append(r + 0.5 * rng.randn(50))
+        ret.append(r)
+    rep = fe.factor_report(fac, ret, min_dates=10)   # 绕过 min_dates 但块自助 p 无法算
+    assert rep["significant"] is None and rep["abstain_reason"] == "insufficient_history"
+    assert rep["ic_block_boot_p"] is None
+
+
+def test_constant_ic_series_returns_none_t():
+    fe = _fe()
+    assert fe.ic_hac_t([0.05] * 25) is None           # 零方差不得伪装成天文 t
+
+
+def test_degenerate_panel_abstains():
+    fe = _fe()
+    xs = np.arange(50.0)
+    rep = fe.factor_report([xs] * 30, [xs] * 30)      # 每期同截面 → IC 恒定
+    assert rep["significant"] is None and rep["abstain_reason"] == "statistical_abstain"
+
+
 def test_insufficient_dates_abstain():
     fe = _fe()
     rng = np.random.RandomState(2)

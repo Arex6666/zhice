@@ -77,6 +77,29 @@ def test_build_portfolio_hrp_default():
     assert abs(sum(out["weights"].values()) - 1) < 1e-6 and out["method"] == "hrp"
 
 
+def test_hrp_single_and_two_assets():
+    pf = _pf()
+    assert pf.hrp_weights(np.random.RandomState(0).randn(60, 1)) == [1.0]   # 单资产不崩
+    w = np.array(pf.hrp_weights(np.random.RandomState(0).randn(60, 2)))
+    assert abs(w.sum() - 1) < 1e-9 and len(w) == 2
+
+
+def test_build_portfolio_single_symbol_all_methods():
+    pf = _pf()
+    R = np.random.RandomState(0).randn(60, 1)
+    for method in ("hrp", "erc", "mvo"):
+        out = pf.build_portfolio(["AAPL"], scores=[0.1], returns_panel=R, method=method)
+        assert out["weights"] == {"AAPL": 1.0}
+
+
+def test_hrp_handles_zero_variance_column():
+    pf = _pf()
+    R = np.random.RandomState(1).randn(120, 4)
+    R[:, 1] = 0.0                                       # 停牌/一字板恒定收益
+    w = np.array(pf.hrp_weights(R))
+    assert np.isfinite(w).all() and abs(w.sum() - 1) < 1e-6   # 不崩、权重有限
+
+
 def test_beats_one_over_n():
     pf = _pf()
     rng = np.random.RandomState(2)

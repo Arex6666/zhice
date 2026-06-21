@@ -46,6 +46,31 @@ def test_residualize_removes_style_exposure():
     assert abs(np.corrcoef(resid, mkt)[0, 1]) < 0.1       # 残差与 MKT 正交
 
 
+def test_mkt_drops_suspended_nan_returns():
+    sb = _sb()
+    assert abs(sb.mkt([0.10, np.nan, 0.10], [1, 1, 1]) - 0.10) < 1e-12   # 停牌剔除+重归一
+    assert abs(sb.mkt([0.10, np.nan, 0.05], [1, 1, 9]) - (0.1 * 0.1 + 0.05 * 0.9)) < 1e-12
+
+
+def test_mkt_all_nan_returns_nan():
+    sb = _sb()
+    import math
+    assert math.isnan(sb.mkt([np.nan, np.nan], [1, 1]))
+
+
+def test_smb_zero_when_caps_tied():
+    sb = _sb()
+    rets = np.array([0.05, 0.05, 0.05, -0.02, -0.02, -0.02])
+    assert sb.smb(rets, np.array([10.0] * 6)) == 0.0          # 无市值分散→弃权(非单边均值)
+    assert sb.smb(rets, np.array([1., 2., 3., 3., 3., 3.])) == 0.0  # 中位并列致 big 腿空
+
+
+def test_vmg_zero_when_ep_tied():
+    sb = _sb()
+    rets = np.array([0.05, 0.05, 0.05, -0.02, -0.02, -0.02])
+    assert sb.vmg(rets, np.array([1.0] * 6), np.array([10., 11., 12., 13., 14., 15.])) == 0.0
+
+
 def test_insufficient_history_abstain():
     sb = _sb()
     out = sb.build_style_series([])                       # 无截面

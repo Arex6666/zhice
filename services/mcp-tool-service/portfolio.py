@@ -42,7 +42,7 @@ def risk_parity_erc(cov):
 
 
 def _ivp(cov):
-    iv = 1.0 / np.diag(cov)
+    iv = 1.0 / np.maximum(np.diag(cov), 1e-12)   # 零方差列(停牌)不产 inf
     return iv / iv.sum()
 
 
@@ -56,11 +56,16 @@ def hrp_weights(returns):
     """Hierarchical Risk Parity（López de Prado，不求逆）。输入 obs×assets 收益。"""
     from scipy.cluster.hierarchy import leaves_list, linkage
     from scipy.spatial.distance import squareform
-    R = np.asarray(returns, dtype=float)
+    R = np.atleast_2d(np.asarray(returns, dtype=float))
+    if R.shape[1] <= 1:                          # 单资产: 全仓, 不走 np.cov(0-d)/聚类
+        return [1.0] * R.shape[1]
     cov = np.cov(R, rowvar=False)
-    corr = np.corrcoef(R, rowvar=False)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        corr = np.corrcoef(R, rowvar=False)      # 零方差列会产 NaN, 下行清理
+    corr = np.nan_to_num(corr, nan=0.0)          # 零方差列 corr=NaN → 置 0(作孤立叶子)
+    np.fill_diagonal(corr, 1.0)
     n = cov.shape[0]
-    dist = np.sqrt(np.clip(0.5 * (1 - corr), 0, None))
+    dist = np.nan_to_num(np.sqrt(np.clip(0.5 * (1 - corr), 0, None)), nan=0.0)
     np.fill_diagonal(dist, 0.0)
     order = list(leaves_list(linkage(squareform(dist, checks=False), method="single")))
     w = np.ones(n)
@@ -127,6 +132,9 @@ def build_portfolio(symbols, scores, returns_panel, method="hrp", w_max=0.04,
                     enable_mvo=False):
     """组合编排：默认 HRP/ERC 稳健档；MVO 仅 enable_mvo 且 N≤100 时启用，否则回退。"""
     n = len(symbols)
+    if n <= 1:   # 单/空标的: 全仓短路, 不进 np.cov(0-d)/聚类/优化器
+        return {"weights": {s: 1.0 for s in symbols}, "method": method,
+                "fallback_reason": "single_asset" if n == 1 else "no_symbols"}
     fallback = None
     if method == "mvo" and enable_mvo and scores is not None and n <= 100:
         res = mvo(scores, np.cov(np.asarray(returns_panel), rowvar=False), w_max=w_max)

@@ -41,6 +41,17 @@ def test_asof_returns_visible_version_only(tmp_path):
     assert db.asof_fundamental(p, "600519", "roe", "2024-01-01") is None  # 都不可见
 
 
+def test_asof_tiebreak_same_announce_date_returns_newest_period(tmp_path):
+    """M10: 年报(Q4)与一季报(Q1)常同日披露 → 同 announce_date 须确定性返回较新报告期。"""
+    db = _db()
+    p = str(tmp_path / "tie.db")
+    db.init_db(p)
+    db.add_fundamental(p, "600519", "2024Q1", "roe", 0.22, "2024-04-30", None, "x", "lagged_legal_deadline")
+    db.add_fundamental(p, "600519", "2023Q4", "roe", 0.20, "2024-04-30", None, "x", "lagged_legal_deadline")
+    r = db.asof_fundamental(p, "600519", "roe", "2024-06-01")
+    assert r["value"] == 0.22 and r["period"] == "2024Q1"   # period DESC tie-break
+
+
 def test_asof_panel(tmp_path):
     db = _db()
     p = str(tmp_path / "pn.db")

@@ -110,6 +110,22 @@ def test_R12_excludes_invalid_factor():
     assert any("R12" in x and "排除" in x for x in r["report"])
 
 
+def test_R10_history_depth_none_caps_no_crash():
+    g = _g()
+    m = [{"verdict": "偏多", "confidence": 0.9, "evidence": [_ev()], "abstain": False}]
+    ff = [{"factor": "X", "pit_status": "history_native", "history_depth": None, "bh_passed": True}]
+    r = g.govern(m, "fresh", None, True, factor_flags=ff)   # 不得抛 TypeError(→502)
+    assert r["ceiling"] <= 0.65 and any("R10" in x for x in r["report"])
+
+
+def test_zero_confidence_dissenter_still_caps_R3():
+    g = _g()
+    m = [{"verdict": "偏多", "confidence": 0.0, "evidence": [_ev()], "abstain": False},
+         {"verdict": "偏空", "confidence": 0.7, "evidence": [_ev("market")], "abstain": False}]
+    r = g.govern(m, "fresh", None, True)
+    assert r["conflict"] is True and r["ceiling"] < 0.85 and any("R3" in x for x in r["report"])
+
+
 def test_R13_portfolio_not_beat_one_over_n():
     g = _g()
     m = [{"verdict": "偏多", "confidence": 0.9, "evidence": [_ev()], "abstain": False}]

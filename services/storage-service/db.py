@@ -266,7 +266,8 @@ def asof_fundamental(path, symbol, field, as_of):
     with _conn(path) as c:
         r = c.execute(
             "SELECT * FROM fundamentals_pit WHERE symbol=? AND field=? AND announce_date<=? "
-            "ORDER BY announce_date DESC LIMIT 1", (symbol, field, as_of)).fetchone()
+            "ORDER BY announce_date DESC, period DESC LIMIT 1",   # 同披露日确定性取较新报告期
+            (symbol, field, as_of)).fetchone()
         return dict(r) if r else None
 
 
@@ -282,7 +283,8 @@ def asof_panel(path, symbol, field, as_of):
     with _conn(path) as c:
         r = c.execute(
             "SELECT * FROM panel_daily WHERE symbol=? AND field=? AND visible_date<=? "
-            "ORDER BY visible_date DESC LIMIT 1", (symbol, field, as_of)).fetchone()
+            "ORDER BY visible_date DESC, date DESC LIMIT 1",   # 同可见日确定性取较新交易日
+            (symbol, field, as_of)).fetchone()
         return dict(r) if r else None
 
 

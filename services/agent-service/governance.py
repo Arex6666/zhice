@@ -66,7 +66,8 @@ def govern(members, data_status, ml, backtest_stable, vol_regime=None,
     conflict = ("偏多" in verdicts) and ("偏空" in verdicts)
 
     # —— 连续分歧指数 ∈[0,1]：置信度加权方向散度（0=方向一致，1=势均力敌对立） ——
-    scores = [(1 if m["verdict"] == "偏多" else -1) * _conf(m) for m in actives]
+    # 置信度下限钳制 0.1：避免 0 置信度异议委员把分歧指数吞为 0、真实多空冲突仍携满额天花板
+    scores = [(1 if m["verdict"] == "偏多" else -1) * max(_conf(m), 0.1) for m in actives]
     gross = sum(abs(s) for s in scores)
     disagreement = round(1 - abs(sum(scores)) / gross, 3) if gross else 0.0
 
@@ -119,8 +120,9 @@ def govern(members, data_status, ml, backtest_stable, vol_regime=None,
             ceiling = min(ceiling, 0.6)
             report.append(f"R11: 因子「{name}」IC{ff['ic_verdict']}→估计不可靠、置信度≤0.6")
         # R10：非 PIT / 历史不足 / 风险闸 → 封顶因子证据贡献
+        hd = ff.get("history_depth")   # 显式 None/缺失=未知深度→保守按历史不足封顶(勿用 or 1e9, 会放行 0)
         if (ff.get("pit_status") in ("forward_pit_only", "lagged_fixed", "lagged_legal_deadline")
-                or ff.get("history_depth", 1e9) < 252 or ff.get("risk_gate")):
+                or hd is None or hd < 252 or ff.get("risk_gate")):
             ceiling = min(ceiling, 0.65)
             report.append(f"R10: 因子「{name}」非PIT/历史不足/风险闸→置信度≤0.65")
     if regime_scale is not None and regime_scale < 1.0:
