@@ -123,14 +123,28 @@ def _ml_member(ml):
             "abstain": False, "abstain_reason": None, "risk_prob": p}
 
 
-def factor_member_vote(factor_eval, stock_quantile, residual_quantile, n_quantiles=5):
+def factor_member_vote(factor_eval, stock_quantile, residual_quantile, n_quantiles=5,
+                       max_stale_days=14, now=None):
     """§10.3 因子级证据 → 个股级 stat 证据映射（三闸同时成立才出证据，否则弃权）。
 
     防"横截面排名当个股 alpha 故事"：必须 (1) family 通过闸门(有效稳定 AND significant)
     AND (2) 个股处极端分位 AND (3) 控制风格后残差仍极端(同侧)。空头方向仅作 view，研究型。
+    staleness：computed_at 距今 > max_stale_days(默认≈10交易日) → abstain(insufficient_history,
+    区别于 data_missing)，杜绝用陈旧离线评估冒充当期证据(§L2 委员可实现性前置)。
     """
     fe = factor_eval or {}
     name = fe.get("factor_name", "?")
+    ca = fe.get("computed_at")
+    if ca:
+        import datetime
+        try:
+            d = datetime.date.fromisoformat(str(ca)[:10])
+            today = now or datetime.date.today()
+            if (today - d).days > max_stale_days:
+                return {"lens": f"量化因子:{name}", "verdict": "中性", "confidence": 0.0,
+                        "evidence": [], "abstain": True, "abstain_reason": "insufficient_history"}
+        except (ValueError, TypeError):
+            pass
     if not (fe.get("family_verdict") == "有效稳定" and fe.get("significant") == 1):
         return {"lens": f"量化因子:{name}", "verdict": "中性", "confidence": 0.0,
                 "evidence": [], "abstain": True, "abstain_reason": "family_not_significant"}
