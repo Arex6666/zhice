@@ -152,22 +152,19 @@ async def fill_reviews():
             try:
                 created_at = row.get("created_at")
                 # 仅复盘 ~1 日龄记录(上界防 horizon 漂移);超窗留 pending。
-                # 注:更严的做法是取 T+1 收盘价(而非实时价)算 ret_1d,需联网 K 线,列为后续。
                 if not created_at or not _in_review_window(created_at, now):
                     continue
                 symbol = row.get("symbol") or ""
                 if not symbol.upper().startswith("ASHARE:"):
-                    continue  # 仅 A 股可取现价
+                    continue  # 仅 A 股可取 K 线
                 price0 = row.get("price_at_analysis")
                 if not price0:
                     continue
-                quote = await datafetch.fetch_quote(symbol)
-                if quote.get("error"):
-                    failures += 1
-                    continue
-                now_price = quote["price"]
+                # M11: 用研判日**之后第一个交易日的收盘价**(真实 T+1)算 ret_1d, 而非实时价;
+                # 杜绝 horizon 随调度/周末漂移。T+1 收盘未产生 → 留 pending 不写假值。
+                now_price = await datafetch.fetch_close_after(symbol, created_at)
                 if not now_price or now_price <= 0:
-                    continue  # 无效现价（停牌/竞价）不回填，避免 -100% 脏数据
+                    continue
                 ret_1d = (now_price - price0) / price0
                 # 按研判方向判定是否兑现（带最小波动阈值，过滤 ret≈0 抖动）；
                 # analysis 行带 verdict（pending 用 SELECT *）。ret_3d/5d 暂不写假值。

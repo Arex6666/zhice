@@ -157,6 +157,50 @@ async def _fetch_sina(ashare_code: str) -> dict:
     raise RuntimeError(f"sina fetch failed for {ashare_code}: {last_err}")
 
 
+def _parse_sina_kline(data) -> list:
+    """sina 日 K JSON → [{ts, close}]（M11 复盘取真实 T+1 收盘价用）。"""
+    out = []
+    for d in (data or []):
+        try:
+            out.append({"ts": str(d.get("day", ""))[:10], "close": float(d.get("close"))})
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _first_close_after(kline: list, after_date: str):
+    """K 线中第一个交易日 ts>after_date 的收盘价（按真实 T+1 复盘, 防 horizon 漂移）。"""
+    ad = str(after_date)[:10]
+    for r in kline:
+        if str(r.get("ts", ""))[:10] > ad:
+            return r.get("close")
+    return None
+
+
+async def fetch_recent_kline(ashare_code: str, count: int = 10) -> list:
+    """抓取近 count 日 A 股日 K（sina），返回 [{ts, close}]。失败抛出由调用方兜底。"""
+    sym = _sina_code(ashare_code)
+    url = ("https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+           f"CN_MarketData.getKLineData?symbol={sym}&scale=240&datalen={count}")
+    async with httpx.AsyncClient(timeout=_TIMEOUT, headers=_HEADERS) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        return _parse_sina_kline(resp.json())
+
+
+async def fetch_close_after(symbol: str, after_date: str, count: int = 10):
+    """复盘用：取 after_date 之后第一个交易日收盘价（T+1）；非 A 股/失败/未产生→None。"""
+    if not symbol or ":" not in symbol:
+        return None
+    market, _, code = symbol.partition(":")
+    if market.upper() != "ASHARE":
+        return None
+    try:
+        return _first_close_after(await fetch_recent_kline(code, count), after_date)
+    except Exception:  # noqa: BLE001 - 复盘非关键路径, 失败留 pending
+        return None
+
+
 async def fetch_news(symbol: str, limit: int = 8) -> list:
     """抓取个股相关新闻并轻量富化（best-effort：任何失败返回 []，绝不抛出）。仅 A 股。"""
     if not symbol or ":" not in symbol:

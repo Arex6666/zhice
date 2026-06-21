@@ -57,6 +57,21 @@ def test_parse_news_json_defensive():
     assert out[0]["source"] == "eastmoney"
 
 
+def test_parse_sina_kline():
+    df = _df()
+    out = df._parse_sina_kline([{"day": "2024-06-11", "open": "1", "high": "2",
+                                 "low": "0.5", "close": "11.0", "volume": "100"}])
+    assert out[0]["ts"] == "2024-06-11" and out[0]["close"] == 11.0
+
+
+def test_first_close_after_picks_t1():
+    df = _df()
+    kl = [{"ts": "2024-06-07", "close": 10.0}, {"ts": "2024-06-11", "close": 11.0},
+          {"ts": "2024-06-12", "close": 12.0}]
+    assert df._first_close_after(kl, "2024-06-07") == 11.0   # 跳过周末, 取下一交易日
+    assert df._first_close_after(kl, "2024-06-12") is None   # 之后无交易日 → None(留 pending)
+
+
 def test_fetch_quote_sets_data_status(monkeypatch):
     """fetch_quote 必须依据真实 ts 计算 data_status，不再恒为 fresh。"""
     df = _df()
