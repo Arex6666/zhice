@@ -45,6 +45,9 @@ services:
     env_file: [.env]
     environment:
       MCP_SSE_URL: http://mcp-tool-service:8002/sse
+      XSEC_MODEL_DIR: /models       # offline-runner 训练的横截面模型共享卷(L3 推理接线后消费)
+    volumes:
+      - zhice-models:/models
     depends_on:
       mcp-tool-service:
         condition: service_healthy
@@ -88,8 +91,29 @@ services:
       <<: *py-health
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8080/health')"]
 
+  # 离线重计算 runner（§3.4 offline 工具集中执行点；不进委员会 SSE 热路径）。
+  offline-runner:
+    build:
+      context: ..
+      dockerfile: services/offline-runner/Dockerfile
+    image: zhice/offline-runner:latest
+    environment:
+      STORAGE_URL: http://storage-service:8003
+      XSEC_MODEL_DIR: /models
+      RUN_ON_START: "0"            # 启动即跑一轮(默认关; 演示时设 1 或用一次性 CLI)
+      FACTOR_EVAL_SEC: "604800"    # 周频 factor_eval 批
+      XSEC_TRAIN_SEC: "2592000"    # 月频 xsec 训练
+    volumes:
+      - zhice-models:/models
+    depends_on:
+      storage-service:
+        condition: service_healthy
+    networks: [zhice-net]
+    restart: unless-stopped
+
 networks:
   zhice-net: {}
 
 volumes:
   zhice-data: {}
+  zhice-models: {}
