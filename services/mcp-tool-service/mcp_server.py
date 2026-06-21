@@ -40,6 +40,7 @@ import regime_overlay as regime_lib
 import ic_audit as ic_audit_lib
 import factor_gate as factor_gate_lib
 import multi_test as multi_test_lib
+import alpha_eval as alpha_eval_lib
 
 _ASHARE_INDEX = "ASHARE:sh000001"  # 上证指数（跨资产 β 默认基准）
 
@@ -333,6 +334,13 @@ async def risk_attribution(weights: list, exposures: list, factor_cov: list,
                            specific_var: list) -> dict:
     """[offline] Barra Σ=BFB'+D 风险归因(系统/特质)。"""
     return {**await _offload(risk_model_lib.risk_attribution, weights, exposures, factor_cov, specific_var),
+            "execution_mode": "offline"}
+
+
+@mcp.tool()
+async def evaluate_factor(factor_values: list, forward_returns: list, library_matrix: list = None) -> dict:
+    """[offline] AlphaEval 五维无回测初筛(PPS/PFS/多样性熵 + 硬闸门); LLM 候选因子先过此关。"""
+    return {**await _offload(alpha_eval_lib.evaluate, factor_values, forward_returns, library_matrix),
             "execution_mode": "offline"}
 
 
