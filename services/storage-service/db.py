@@ -106,7 +106,7 @@ def init_db(path=DEFAULT_DB):
           PRIMARY KEY(symbol,period,field,source));
         CREATE INDEX IF NOT EXISTS idx_fund_sad ON fundamentals_pit(symbol,announce_date);
         CREATE TABLE IF NOT EXISTS index_membership(
-          date TEXT, symbol TEXT, weight REAL, index_code TEXT, universe_pit_status TEXT,
+          date TEXT, symbol TEXT, name TEXT, weight REAL, index_code TEXT, universe_pit_status TEXT,
           PRIMARY KEY(date,symbol,index_code));
         CREATE TABLE IF NOT EXISTS events(
           symbol TEXT, event_type TEXT, announce_date TEXT, payload_json TEXT,
@@ -286,15 +286,15 @@ def asof_panel(path, symbol, field, as_of):
         return dict(r) if r else None
 
 
-def add_membership(path, date, symbol, weight, index_code, universe_pit_status):
+def add_membership(path, date, symbol, weight, index_code, universe_pit_status, name=""):
     with _conn(path) as c:
         c.execute(
-            "INSERT OR REPLACE INTO index_membership(date,symbol,weight,index_code,universe_pit_status)"
-            " VALUES(?,?,?,?,?)", (date, symbol, weight, index_code, universe_pit_status))
+            "INSERT OR REPLACE INTO index_membership(date,symbol,name,weight,index_code,universe_pit_status)"
+            " VALUES(?,?,?,?,?,?)", (date, symbol, name, weight, index_code, universe_pit_status))
 
 
 def universe(path, date, lsy_filter="off"):
-    """时点成分：date<=t 最近快照的成分股；lsy_filter=on 时剔 ST（市值/次新过滤待面板接入增强）。"""
+    """时点成分：date<=t 最近快照的成分股；lsy_filter=on 时按**名称**剔 ST/*ST（市值/次新过滤待面板增强）。"""
     with _conn(path) as c:
         snap = c.execute("SELECT MAX(date) d FROM index_membership WHERE date<=?", (date,)).fetchone()["d"]
         if not snap:
@@ -302,5 +302,5 @@ def universe(path, date, lsy_filter="off"):
         rows = [dict(r) for r in c.execute(
             "SELECT * FROM index_membership WHERE date=?", (snap,)).fetchall()]
     if lsy_filter == "on":
-        rows = [r for r in rows if "ST" not in (r["symbol"] or "")]
+        rows = [r for r in rows if "ST" not in (r.get("name") or "")]
     return rows

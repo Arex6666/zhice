@@ -8,9 +8,9 @@ STORAGE_URL = os.getenv("STORAGE_URL", "http://storage-service:8003").rstrip("/"
 
 
 def universe_from_rows(rows, lsy_filter="off"):
-    """纯函数：对成分行套用 lsy 过滤（剔 ST；市值/次新过滤待面板接入增强）。"""
+    """纯函数：对成分行套用 lsy 过滤（按**名称**剔 ST/*ST；市值/次新过滤待面板接入增强）。"""
     if lsy_filter == "on":
-        return [r for r in rows if "ST" not in (r.get("symbol") or "")]
+        return [r for r in rows if "ST" not in (r.get("name") or "")]
     return list(rows)
 
 

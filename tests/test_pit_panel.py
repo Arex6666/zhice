@@ -11,9 +11,9 @@ def _pp():
 
 def test_universe_from_rows_lsy():
     pp = _pp()
-    rows = [{"symbol": "600519"}, {"symbol": "ST康美"}]
-    assert {r["symbol"] for r in pp.universe_from_rows(rows, "on")} == {"600519"}
-    assert {r["symbol"] for r in pp.universe_from_rows(rows, "off")} == {"600519", "ST康美"}
+    rows = [{"symbol": "600519", "name": "贵州茅台"}, {"symbol": "000408", "name": "*ST藏格"}]
+    assert {r["symbol"] for r in pp.universe_from_rows(rows, "on")} == {"600519"}   # 按 name 剔 ST
+    assert {r["symbol"] for r in pp.universe_from_rows(rows, "off")} == {"600519", "000408"}
 
 
 def test_execution_mode_realtime():

@@ -33,4 +33,5 @@ def test_parse_csindex_cons():
                        "权重": [1.2, 0.8]})
     out = af.parse_csindex_cons(df, "000906")
     assert len(out) == 2 and out[0]["symbol"] == "600519"
+    assert out[0]["name"] == "贵州茅台"   # 名称必须带出(ST 过滤依赖)
     assert all(r["universe_pit_status"] == "today_snapshot_only" for r in out)

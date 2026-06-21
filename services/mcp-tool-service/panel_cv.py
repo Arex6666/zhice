@@ -21,8 +21,8 @@ def purged_split(n, n_splits=5, embargo=5, horizon=5):
         start = k * fold
         end = (k + 1) * fold if k < n_splits - 1 else n   # 最后一折吃尾
         test = list(range(start, end))
-        lo = start - embargo
-        hi = (end - 1) + horizon                          # 测试期标签窗右界
+        lo = start - horizon                              # 过去侧：剔标签窗[i,i+horizon]伸入测试期者(防前视)
+        hi = (end - 1) + horizon + embargo                # 未来侧：horizon 标签重叠 + embargo 前向缓冲
         train = [i for i in range(n) if i not in range(start, end) and not (lo <= i <= hi)]
         folds.append((train, test))
     return folds

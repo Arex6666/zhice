@@ -143,6 +143,7 @@ class PanelIn(BaseModel):
 class MembershipIn(BaseModel):
     date: str
     symbol: str
+    name: str = ""
     weight: float = 0.0
     index_code: str = "000906"
     universe_pit_status: str = "today_snapshot_only"
@@ -163,7 +164,8 @@ def pit_add_panel(p: PanelIn):
 
 @app.post("/pit/membership")
 def pit_add_membership(m: MembershipIn):
-    db.add_membership(DB_PATH, m.date, m.symbol, m.weight, m.index_code, m.universe_pit_status)
+    db.add_membership(DB_PATH, m.date, m.symbol, m.weight, m.index_code, m.universe_pit_status,
+                      name=m.name)
     return {"ok": True}
 
 

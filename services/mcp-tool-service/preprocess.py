@@ -11,24 +11,25 @@ _MAD_C = 1.4826  # MAD → 稳健标准差
 
 
 def mad_winsorize(x, k=3.0):
-    """按 median ± k·(1.4826·MAD) 截尾；MAD=0(过半相同)时退回标准差尺度；std 也为 0 才原样返回。"""
+    """按 median ± k·(1.4826·MAD) 截尾。**NaN 安全**：单个缺失不污染有限位(保留 NaN 在原位)；
+    MAD=0 退回标准差尺度；std 也为 0 才原样返回。"""
     a = np.asarray(x, dtype=float)
-    med = np.median(a)
-    sigma = _MAD_C * np.median(np.abs(a - med))
-    if sigma == 0:
-        sigma = float(np.std(a))
-        if sigma == 0:
+    med = np.nanmedian(a)
+    sigma = _MAD_C * np.nanmedian(np.abs(a - med))
+    if sigma == 0 or not np.isfinite(sigma):
+        sigma = float(np.nanstd(a))
+        if sigma == 0 or not np.isfinite(sigma):
             return a.copy()
-    return np.clip(a, med - k * sigma, med + k * sigma)
+    return np.where(np.isfinite(a), np.clip(a, med - k * sigma, med + k * sigma), a)
 
 
 def zscore(x):
-    """横截面 z-score；常数序列返回全 0。"""
+    """横截面 z-score；**NaN 安全**(缺失行保 NaN、不污染有限位)；常数/全 NaN 序列有限位返 0。"""
     a = np.asarray(x, dtype=float)
-    sd = a.std(ddof=0)
-    if sd == 0:
-        return np.zeros_like(a)
-    return (a - a.mean()) / sd
+    sd = np.nanstd(a)
+    if sd == 0 or not np.isfinite(sd):
+        return np.where(np.isfinite(a), 0.0, a)
+    return (a - np.nanmean(a)) / sd
 
 
 def neutralize(values, industries, ln_mktcap, min_bucket=5):

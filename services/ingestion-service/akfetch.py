@@ -61,6 +61,8 @@ def parse_csindex_cons(df, index_code):
         sym = r.get("品种代码") or r.get("成分券代码") or r.get("symbol")
         if not sym:
             continue
-        out.append({"date": None, "symbol": str(sym), "weight": _num(r.get("权重")) or 0.0,
+        out.append({"date": None, "symbol": str(sym),
+                    "name": str(r.get("品种名称") or r.get("成分券名称") or ""),  # ST 过滤依赖名称
+                    "weight": _num(r.get("权重")) or 0.0,
                     "index_code": index_code, "universe_pit_status": "today_snapshot_only"})
     return out

@@ -49,6 +49,27 @@ def test_neutralize_pure_industry_factor_residual_near_zero():
     assert np.allclose(out["residual"], 0.0, atol=1e-6)
 
 
+def test_winsorize_single_nan_does_not_poison_others():
+    pp = _pp()
+    w = pp.mad_winsorize([1, 2, 3, 4, float("nan"), 5, 6, 7, 8, 9])
+    assert np.isnan(w[4]) and np.isfinite(np.delete(w, 4)).all()
+
+
+def test_zscore_single_nan_preserves_finite_rows():
+    pp = _pp()
+    z = pp.zscore([1, 2, 3, 4, float("nan"), 5, 6, 7, 8, 9])
+    finite = np.delete(z, 4)
+    assert np.isnan(z[4]) and np.isfinite(finite).all()
+    assert abs(float(np.mean(finite))) < 1e-9
+
+
+def test_preprocess_chain_tolerates_one_missing():
+    pp = _pp()
+    w = pp.mad_winsorize([1, 2, 3, 4, float("nan"), 5, 6, 7, 8, 9])
+    out = pp.neutralize(pp.zscore(w), ["A"] * 10, list(range(10)))
+    assert out["n_valid"] == 9 and out["data_quality"] == "ok"   # 单缺失不打成全弃权
+
+
 def test_neutralize_degraded_on_tiny_bucket():
     pp = _pp()
     rng = np.random.RandomState(1)

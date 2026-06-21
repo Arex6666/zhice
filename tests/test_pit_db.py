@@ -55,10 +55,11 @@ def test_universe_membership_and_lsy(tmp_path):
     db = _db()
     p = str(tmp_path / "u.db")
     db.init_db(p)
-    db.add_membership(p, "2024-01-01", "600519", 1.0, "000906", "today_snapshot_only")
-    db.add_membership(p, "2024-01-01", "ST康美", 0.1, "000906", "today_snapshot_only")
+    # 真实形态: symbol 是数字代码, ST 标记在 name 上
+    db.add_membership(p, "2024-01-01", "600519", 1.0, "000906", "today_snapshot_only", name="贵州茅台")
+    db.add_membership(p, "2024-01-01", "000408", 0.1, "000906", "today_snapshot_only", name="*ST藏格")
     allu = db.universe(p, "2024-06-01")
-    assert {x["symbol"] for x in allu} == {"600519", "ST康美"}
+    assert {x["symbol"] for x in allu} == {"600519", "000408"}
     lsy = db.universe(p, "2024-06-01", lsy_filter="on")
-    assert "ST康美" not in {x["symbol"] for x in lsy}
-    assert db.universe(p, "2023-01-01") == []  # 早于任何快照
+    assert {x["symbol"] for x in lsy} == {"600519"}   # ST 按名称剔除(对数字代码生效)
+    assert db.universe(p, "2023-01-01") == []          # 早于任何快照
