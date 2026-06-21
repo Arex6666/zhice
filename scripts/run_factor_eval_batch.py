@@ -51,6 +51,8 @@ def main(symbols=None, as_of=None, post=True):
     sys.path.insert(0, os.path.join(ROOT, "services", "mcp-tool-service"))
     import finance
     import factor_eval
+    import zoo
+    factors = list(zoo.FACTORS)   # 评估全部 history_native 价量因子(随 zoo 扩展自动同步)
     symbols = symbols or ["600519", "000001", "600036", "601318", "000858", "600000"]
     as_of = as_of or datetime.date.today().isoformat()
     storage = os.getenv("STORAGE_URL", "http://localhost:8003").rstrip("/")
@@ -76,7 +78,7 @@ def main(symbols=None, as_of=None, post=True):
             print(f"  post {row['factor_name']} failed: {type(e).__name__}")
 
     res = run_batch(klines, factor_eval.factor_report, factor_eval.build_factor_panels,
-                    post_fn, PRICE_VOLUME_FACTORS, as_of)
+                    post_fn, factors, as_of)
     print(f"factor_eval batch as_of={as_of}: posted={res['posted']} failures={res['failures']}")
     for r in res["results"]:
         print(" ", r)

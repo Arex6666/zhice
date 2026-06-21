@@ -656,7 +656,9 @@ function renderReview(data){
 }
 
 /* ---- QUANT ---- */
-const QUANT_FACTORS = ["Mom_12_1", "Rev_5", "TotalVol", "Amihud"];
+const QUANT_FACTORS = ["Mom_12_1", "Mom_6_1", "Rev_1", "Rev_5", "Rev_21",
+  "TotalVol", "Vol_60", "DownVol", "HiLoRange", "MaxRet", "Hi52", "MA_Trend",
+  "RangePos", "Amihud", "VolRatio", "PVCorr"];
 async function renderQuant(){
   const A = $('analysis');
   let rows = '';
