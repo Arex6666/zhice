@@ -123,6 +123,35 @@ def _ml_member(ml):
             "abstain": False, "abstain_reason": None, "risk_prob": p}
 
 
+def factor_member_vote(factor_eval, stock_quantile, residual_quantile, n_quantiles=5):
+    """§10.3 因子级证据 → 个股级 stat 证据映射（三闸同时成立才出证据，否则弃权）。
+
+    防"横截面排名当个股 alpha 故事"：必须 (1) family 通过闸门(有效稳定 AND significant)
+    AND (2) 个股处极端分位 AND (3) 控制风格后残差仍极端(同侧)。空头方向仅作 view，研究型。
+    """
+    fe = factor_eval or {}
+    name = fe.get("factor_name", "?")
+    if not (fe.get("family_verdict") == "有效稳定" and fe.get("significant") == 1):
+        return {"lens": f"量化因子:{name}", "verdict": "中性", "confidence": 0.0,
+                "evidence": [], "abstain": True, "abstain_reason": "family_not_significant"}
+    top, bottom = n_quantiles - 1, 0
+    if stock_quantile not in (top, bottom):
+        return {"lens": f"量化因子:{name}", "verdict": "中性", "confidence": 0.0,
+                "evidence": [], "abstain": True, "abstain_reason": "not_extreme_quantile"}
+    if residual_quantile != stock_quantile:   # 控制风格后不再同侧极端 → 被风格解释
+        return {"lens": f"量化因子:{name}", "verdict": "中性", "confidence": 0.0,
+                "evidence": [], "abstain": True, "abstain_reason": "style_explained"}
+    side = 1 if stock_quantile == top else -1
+    eff = side * (1 if fe.get("direction", "+") == "+" else -1)
+    verdict = "偏多" if eff > 0 else "偏空"
+    ev = [{"type": "stat", "source": "factor_eval",
+           "value": f"{name} 极端分位{stock_quantile}/{n_quantiles}, RankIC={fe.get('mean_rank_ic')}",
+           "interpretation": f"family={fe.get('family_verdict')}, 控制风格后仍极端"}]
+    return {"lens": f"量化因子:{name}", "verdict": verdict, "confidence": 0.4,
+            "evidence": ev, "counter_evidence": [], "risks": ["因子级排名非个股保证, 受R10封顶"],
+            "abstain": False, "abstain_reason": None}
+
+
 def _conf(m):
     try:
         return float(m.get("confidence"))

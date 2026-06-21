@@ -119,6 +119,37 @@ def test_ml_member_evidence_tagged_model():
     assert mlm["evidence"][0]["type"] == "model"
 
 
+def test_factor_member_vote_three_gates_pass():
+    """§10.3 三闸全过(family有效稳定+显著 AND 极端分位 AND 控制风格后仍极端)→出 stat 证据。"""
+    com = _committee()
+    fe = {"factor_name": "Mom", "family_verdict": "有效稳定", "significant": 1,
+          "direction": "+", "mean_rank_ic": 0.05, "pit_status": "history_native"}
+    v = com.factor_member_vote(fe, stock_quantile=4, residual_quantile=4, n_quantiles=5)
+    assert v["abstain"] is False and v["verdict"] == "偏多"
+    assert v["evidence"][0]["type"] == "stat"
+
+
+def test_factor_member_vote_abstentions():
+    com = _committee()
+    base = {"factor_name": "Mom", "family_verdict": "有效稳定", "significant": 1, "direction": "+"}
+    # 闸1: family 未显著
+    assert com.factor_member_vote({**base, "significant": 0, "family_verdict": "失效"},
+                                  4, 4)["abstain"] is True
+    # 闸2: 非极端分位
+    assert com.factor_member_vote(base, 2, 2)["abstain"] is True
+    # 闸3: 控制风格后不再极端(残差分位非极端) → 被风格解释
+    v = com.factor_member_vote(base, 4, 2)
+    assert v["abstain"] is True and v["abstain_reason"] == "style_explained"
+
+
+def test_factor_member_vote_direction_bottom_quantile():
+    com = _committee()
+    fe = {"factor_name": "IdioVol", "family_verdict": "有效稳定", "significant": 1, "direction": "-"}
+    # 底部分位 + 负向因子 → 看多 (低特异波动好)
+    v = com.factor_member_vote(fe, stock_quantile=0, residual_quantile=0, n_quantiles=5)
+    assert v["abstain"] is False and v["verdict"] == "偏多"
+
+
 def test_cross_examination_downgrades_unrebutted_dominant():
     """冲突时，对最高置信度强结论委员发一次交叉质询；其只拿得出情绪证据→R9 降级为中性。"""
     com = _committee()
