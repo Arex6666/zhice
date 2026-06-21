@@ -45,13 +45,17 @@ const SECTORS = [
   {name:'家电食品', syms:[['000333','美的集团'],['000651','格力电器'],['600887','伊利股份'],['603288','海天味业']]},
   {name:'资源能源', syms:[['601857','中国石油'],['600028','中国石化'],['601088','中国神华'],['600019','宝钢股份']]},
   {name:'地产基建', syms:[['000002','万科A'],['600048','保利发展'],['601668','中国建筑']]},
+  {name:'港股', market:'HK', syms:[['00700','腾讯控股'],['09988','阿里巴巴-W'],['03690','美团-W'],
+    ['01810','小米集团-W'],['01211','比亚迪股份'],['00388','香港交易所'],['01299','友邦保险'],['01024','快手-W']]},
 ];
 const INDICES = [['sh000001','上证指数'],['sz399001','深证成指'],['sz399006','创业板指'],
                  ['sh000300','沪深300'],['sh000905','中证500'],['sh000688','科创50']];
 
+function secMarket(s){ return s.market || 'ASHARE'; }   // 板块所属市场(默认A股, 港股板块为 HK)
+
 function allBoardSymbols(){
   const out = INDICES.map(x => 'ASHARE:'+x[0]);
-  SECTORS.forEach(s => s.syms.forEach(t => out.push('ASHARE:'+t[0])));
+  SECTORS.forEach(s => s.syms.forEach(t => out.push(secMarket(s)+':'+t[0])));
   return out;
 }
 
@@ -180,8 +184,9 @@ function renderSectors(map){
   let html = '';
   SECTORS.forEach(sec => {
     let sum=0, n=0;
+    const mkt = secMarket(sec);
     const cells = sec.syms.map(([code,nm]) => {
-      const sym = 'ASHARE:'+code, q = map[sym];
+      const sym = mkt+':'+code, q = map[sym];
       if (q && !q.error && q.change_pct!=null){ sum+=q.change_pct; n++; }
       return ticker(sym, code, nm, q);
     }).join('');
@@ -755,8 +760,8 @@ async function renderQuant(){
   // ② 评估池披露（回答"是不是全 A 股"）
   html += '<div class="card" style="margin-top:16px"><div class="ev-title">评估范围说明</div>'
         + '<div class="review-note"><b>这里展示的不是全部 A 股。</b> 因子体检评估池 = <b>中证300</b>'
-        + '（A股最具代表性的 300 只蓝筹，约占 A股总市值 60%、但只占只数 ~6%）；盯盘墙 = <b>精选 38 只</b>跨 9 行业代表 + 6 指数；'
-        + '个股研判则可输入<b>任意</b> A股代码。按设计走中证800/300 可投域（不做全市场 ~5000 只：日频全市场回测会引入幸存者/未来函数偏差且不可行）。</div></div>';
+        + '（A股最具代表性的 300 只蓝筹，约占 A股总市值 60%、但只占只数 ~6%）；盯盘墙 = <b>A股 38 + 港股 8</b> 精选代表 + 6 指数；'
+        + '个股研判则可输入<b>任意</b> A股/港股代码（如 HK:00700）。按设计走中证800/300 可投域（不做全市场 ~5000 只：日频全市场回测会引入幸存者/未来函数偏差且不可行）。</div></div>';
   // ③ 明细表
   html += '<div class="card" style="margin-top:16px"><div class="ev-title">因子 IC 体检明细（中证300 · 剔小票 lsy 口径 · 按显著性/强度排序）</div>'
         + '<div class="bymem"><div class="row" style="font-weight:600;opacity:.7"><span>因子</span><span>Rank-IC</span><span>t(HAC)</span><span>判定</span></div>'

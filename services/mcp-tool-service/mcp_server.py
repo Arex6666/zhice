@@ -154,34 +154,42 @@ async def get_quote(symbol: str) -> dict:
     return q
 
 
+async def _batch_market(market, pairs, out):
+    """对支持批量的市场(ASHARE/HK)单次取回并 enrich。pairs=[(symbol, code)]。"""
+    codes = [c for _, c in pairs]
+    try:
+        raw = await finance.get_adapter(market).get_quotes_batch(codes)
+    except Exception:
+        raw = {}
+    for s, code in pairs:
+        q = raw.get(code)
+        if not q:
+            out.append({"symbol": s, "error": "no_quote", "data_status": "error"})
+            continue
+        q = _enrich_quote(q, market)     # data_status(据真实 ts) + change_pct(个股/指数一致重算)
+        q["symbol"] = s
+        out.append(q)
+
+
 @mcp.tool()
 async def get_quotes_batch(symbols: list) -> list:
-    """[realtime] 批量实时行情（仪表盘盯盘墙用）：A股个股+指数经**单次 sina 调用**取回，含 data_status/change_pct。
+    """[realtime] 批量实时行情（仪表盘盯盘墙用）：A股(含指数)与港股各经**单次 sina 调用**取回，含 data_status/change_pct。
 
-    symbols 形如 ['ASHARE:600519','ASHARE:000858','ASHARE:sh000001']。非 A 股逐个回退 get_quote。
+    symbols 形如 ['ASHARE:600519','ASHARE:sh000001','HK:00700']。其它市场(US/CRYPTO)逐个回退 get_quote。
     """
-    ashare_codes, ashare_syms, others = [], [], []
+    groups = {"ASHARE": [], "HK": []}
+    others = []
     for s in symbols:
         try:
             market, code = finance.split_symbol(s)
         except Exception:
             others.append(s)
             continue
-        (ashare_syms.append(s) or ashare_codes.append(code)) if market == "ASHARE" else others.append(s)
+        (groups[market].append((s, code)) if market in groups else others.append(s))
     out = []
-    if ashare_codes:
-        try:
-            raw = await finance.get_adapter("ASHARE").get_quotes_batch(ashare_codes)
-        except Exception:
-            raw = {}
-        for s, code in zip(ashare_syms, ashare_codes):
-            q = raw.get(code)
-            if not q:
-                out.append({"symbol": s, "error": "no_quote", "data_status": "error"})
-                continue
-            q = _enrich_quote(q, "ASHARE")   # data_status(据真实 ts) + change_pct（个股/指数一致重算）
-            q["symbol"] = s
-            out.append(q)
+    for market, pairs in groups.items():
+        if pairs:
+            await _batch_market(market, pairs, out)
     for s in others:
         try:
             out.append({**(await get_quote(s)), "symbol": s})

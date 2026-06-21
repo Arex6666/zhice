@@ -98,6 +98,49 @@ def parse_sina_multi(text):
     return out
 
 
+def parse_sina_hk(text):
+    """解析新浪港股行：英文名,中文名,今开,昨收,最高,最低,现价,涨跌额,涨跌幅,...,日期,时间(实测 19 字段)。"""
+    body = text.split('="', 1)[1].rstrip('";\n') if '="' in text else ""
+    f = body.split(",")
+
+    def num(i):
+        try:
+            return float(f[i])
+        except (IndexError, ValueError):
+            return None
+
+    # 日期 f[17]=YYYY/MM/DD, 时间 f[18]=HH:MM → 真实成交时间(港股源常延迟, 据此诚实判新鲜度)
+    ts = time.time()
+    if len(f) > 18 and f[17] and f[18]:
+        cand = _sina_ts(f[17].replace("/", "-"), f[18] if f[18].count(":") == 2 else f[18] + ":00")
+        if cand:
+            ts = cand
+    return {"name": f[1] if len(f) > 1 else "", "open": num(2), "prev_close": num(3),
+            "high": num(4), "low": num(5), "price": num(6), "volume": num(12),
+            "ts": ts, "source": "sina"}
+
+
+def parse_sina_hk_multi(text):
+    """一次 sina list=hk... 批量返回 → {sina_code: quote}（sina_code 形如 hk00700）。"""
+    out = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("var hq_str_") or '="' not in line:
+            continue
+        sina_code = line[len("var hq_str_"):].split("=", 1)[0].strip()
+        if not sina_code:
+            continue
+        try:
+            out[sina_code] = parse_sina_hk(line)
+        except (IndexError, ValueError):
+            continue
+    return out
+
+
+def _hk_sina_code(code):
+    return code if code.startswith("hk") else "hk" + code
+
+
 def _em_kline_rows(klines, adjust):
     """东方财富 K 线行 -> 标准 OHLCV dict，并标注实际复权口径 adjust_actual。"""
     out = []
@@ -305,7 +348,47 @@ class CryptoAdapter(MarketAdapter):
         return []  # 加密货币新闻源不稳，MVP 暂返回空（仪表盘提示）
 
 
-_ADAPTERS = {"ASHARE": AshareAdapter, "US": UsAdapter, "CRYPTO": CryptoAdapter}
+class HkAdapter(MarketAdapter):
+    """港股适配器：行情走新浪(hk 前缀, 实时但常延迟)，K线走东财 push2his(secid 116.)。"""
+
+    async def get_quote(self, code):
+        url = f"https://hq.sinajs.cn/list={_hk_sina_code(code)}"
+        async with httpx.AsyncClient(timeout=10, headers=SINA_HEADERS) as c:
+            r = await aget(c, url)
+            r.encoding = "gbk"
+            return parse_sina_hk(r.text)
+
+    async def get_quotes_batch(self, codes):
+        if not codes:
+            return {}
+        sina_codes = [_hk_sina_code(c) for c in codes]
+        url = "https://hq.sinajs.cn/list=" + ",".join(sina_codes)
+        async with httpx.AsyncClient(timeout=12, headers=SINA_HEADERS) as c:
+            r = await aget(c, url)
+            r.encoding = "gbk"
+            parsed = parse_sina_hk_multi(r.text)
+        return {c: parsed[sc] for c, sc in zip(codes, sina_codes) if sc in parsed}
+
+    async def get_kline(self, code, period="daily", count=120, adjust="qfq"):
+        # 港股 K线走东财 push2his（secid 市场前缀 116.）；失败优雅返空(图表降级, 不崩)
+        secid = f"116.{code}"
+        klt = {"daily": 101, "weekly": 102, "monthly": 103, "60min": 60}.get(period, 101)
+        fqt = {"qfq": 1, "hfq": 2, "none": 0}.get(adjust, 1)
+        params = {"secid": secid, "klt": klt, "fqt": fqt, "lmt": count, "end": "20500101",
+                  "fields1": "f1,f2,f3,f4,f5,f6",
+                  "fields2": "f51,f52,f53,f54,f55,f56,f57,f58"}
+        try:
+            async with httpx.AsyncClient(timeout=12, headers=UA) as c:
+                r = await aget(c, "https://push2his.eastmoney.com/api/qt/stock/kline/get", params=params)
+                return _em_kline_rows((r.json().get("data") or {}).get("klines") or [], adjust)
+        except (httpx.HTTPError, ValueError, KeyError, IndexError):
+            return []   # 港股无二级 K线源 → 优雅降级(图表显示暂无)
+
+    async def get_news(self, code, limit=8):
+        return []   # 港股新闻源不稳，MVP 返回空（仪表盘提示），绝不编造
+
+
+_ADAPTERS = {"ASHARE": AshareAdapter, "US": UsAdapter, "CRYPTO": CryptoAdapter, "HK": HkAdapter}
 
 
 async def ashare_eastmoney_price(code):

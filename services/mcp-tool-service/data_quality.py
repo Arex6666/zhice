@@ -2,7 +2,7 @@
 
 data_status ∈ {fresh, delayed, stale, fallback, error}
 """
-FRESH = {"ASHARE": 300, "US": 900, "CRYPTO": 60}  # 各市场新鲜窗（秒）
+FRESH = {"ASHARE": 300, "US": 900, "CRYPTO": 60, "HK": 900}  # 各市场新鲜窗（秒；港股免费源常延迟）
 
 
 def assess(quote, market, source, now_ts):
@@ -25,8 +25,9 @@ def assess(quote, market, source, now_ts):
     )
     pc = quote.get("prev_close")
     p = quote.get("price")
-    quote["limit_up"] = bool(pc and p and (p - pc) / pc >= 0.0995)
-    quote["limit_down"] = bool(pc and p and (p - pc) / pc <= -0.0995)
+    is_ashare = market == "ASHARE"   # 涨跌停为 A股特有(±10%)；港股/美股无日内限制, 不误标
+    quote["limit_up"] = bool(is_ashare and pc and p and (p - pc) / pc >= 0.0995)
+    quote["limit_down"] = bool(is_ashare and pc and p and (p - pc) / pc <= -0.0995)
     return quote
 
 
