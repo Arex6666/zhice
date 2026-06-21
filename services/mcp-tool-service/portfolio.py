@@ -117,6 +117,45 @@ def mvo(mu, cov, w_max=0.04, gamma=5.0):
         return {"weights": eq, "status": "error", "fallback_reason": str(e)[:80]}
 
 
+def shrink_cov_report(returns, cond_threshold=1e4):
+    """收缩协方差诊断报告（供治理 R11 判"估计可靠性"）：δ/条件数/可靠性标记 + caveat。"""
+    R = np.atleast_2d(np.asarray(returns, dtype=float))
+    n_obs, n_assets = R.shape
+    base = shrink_cov(R)
+    cond = base["condition_number"]
+    # 不可靠：条件数过高 或 观测数不足以支撑资产维度(T < 2N，协方差欠定)
+    reliable = bool(np.isfinite(cond) and cond < cond_threshold and n_obs >= 2 * n_assets)
+    caveat = None if reliable else (
+        "协方差估计欠定/病态（T<2N 或条件数过高）→ 建议回退 ERC/HRP，勿用 MVO（R11）")
+    return {"delta": base["delta"], "condition_number": cond,
+            "n_assets": int(n_assets), "n_obs": int(n_obs),
+            "reliable": reliable, "caveat": caveat,
+            "research_only": True}
+
+
+def efficient_frontier(mu, cov, n_points=10, w_max=0.04, gamma_lo=0.5, gamma_hi=50.0):
+    """research-only 有效前沿：在风险厌恶 γ 网格上解 long-only MVO，给 (ret, vol, weights) 序列。
+
+    仅作研究展示（MVO 是误差最大化器，强制并列 1/N，绝不主张可实盘）。求解失败的网格点跳过。
+    """
+    mu = np.asarray(mu, dtype=float)
+    cov = np.asarray(cov, dtype=float)
+    pts = []
+    gammas = np.geomspace(gamma_lo, gamma_hi, max(2, n_points))   # 低γ激进→高γ保守
+    for g in gammas:
+        sol = mvo(mu, cov, w_max=w_max, gamma=float(g))
+        w = np.asarray(sol["weights"], dtype=float)
+        ret = float(mu @ w)
+        vol = float(np.sqrt(max(0.0, w @ cov @ w)))
+        pts.append({"gamma": float(round(g, 4)), "ret": round(ret, 6),
+                    "vol": round(vol, 6), "weights": [float(x) for x in w],
+                    "status": sol.get("status")})
+    # 去重(同解)并按波动升序
+    pts = sorted(pts, key=lambda p: p["vol"])
+    return {"frontier": pts, "research_only": True,
+            "caveat": "MVO 有效前沿仅研究展示，误差最大化器，强制并列 1/N，不可实盘"}
+
+
 def capacity_check(weights, capital, adv, max_participation=0.1):
     """容量诊断：参与度 = 仓位市值/ADV；超阈标 illiquid（仅事后诊断，研究型）。"""
     out = []

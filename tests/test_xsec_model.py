@@ -42,3 +42,61 @@ def test_artifact_meta_and_contract():
     assert xm.check_artifact(meta)["ok"] is True                 # 自身一致
     chk = xm.check_artifact({**meta, "python_version": "2.7"})
     assert chk["ok"] is False and chk["abstain_reason"] == "model_load_failed"
+
+
+# ---- L3 GBDT 横截面排序器 + 工件契约 round-trip ----
+def test_ranker_learns_monotone_signal():
+    """合成 y≈2·f0：训练后预测分应与 f0 强正相关（确实学到方向）。"""
+    xm = _xm()
+    rng = np.random.RandomState(0)
+    X = rng.randn(400, 3)
+    y = 2 * X[:, 0] + 0.1 * rng.randn(400)
+    r = xm.XSecRanker(n_estimators=60, max_depth=3)
+    r.fit(X, y, feature_names=["f0", "f1", "f2"])
+    pred = np.asarray(r.predict(X))
+    assert np.corrcoef(pred, X[:, 0])[0, 1] > 0.7
+
+
+def test_save_load_roundtrip_predicts_identically(tmp_path):
+    """存→读回(同环境) 预测逐点一致；sidecar artifact_meta.json 落盘。"""
+    import os
+    xm = _xm()
+    rng = np.random.RandomState(1)
+    X = rng.randn(200, 2)
+    y = X[:, 1] + 0.1 * rng.randn(200)
+    r = xm.XSecRanker(n_estimators=40, max_depth=3)
+    r.fit(X, y, feature_names=["a", "b"])
+    p = str(tmp_path / "xsec.pkl")
+    r.save(p)
+    assert os.path.exists(p + ".meta.json")
+    r2 = xm.XSecRanker.load(p)
+    assert np.allclose(np.asarray(r.predict(X)), np.asarray(r2.predict(X)))
+
+
+def test_load_rejects_env_mismatch(tmp_path):
+    """跨容器/跨版本：加载侧与 sidecar 不一致 → model_load_failed（不静默降级）。"""
+    import pytest
+    xm = _xm()
+    rng = np.random.RandomState(2)
+    X = rng.randn(120, 2)
+    r = xm.XSecRanker(n_estimators=20, max_depth=2)
+    r.fit(X, X[:, 0], feature_names=["a", "b"])
+    p = str(tmp_path / "m.pkl")
+    r.save(p)
+    bad = {"python_version": "2.7", "sklearn_version": "0.0", "numpy_version": "0.0"}
+    with pytest.raises(xm.ArtifactContractError):
+        xm.XSecRanker.load(p, current_env=bad)
+    out = xm.load_or_abstain(p, current_env=bad)
+    assert out["model"] is None and out["abstain_reason"] == "model_load_failed"
+
+
+def test_predict_scores_from_factor_dict():
+    """xsec_rank 用：按 feature_names 从 clean 因子 dict 组装 X 预测；缺因子列→弃权(None)。"""
+    xm = _xm()
+    rng = np.random.RandomState(3)
+    X = rng.randn(150, 2)
+    r = xm.XSecRanker(n_estimators=30, max_depth=3)
+    r.fit(X, X[:, 0], feature_names=["mom", "val"])
+    scores = r.predict_scores({"mom": list(X[:, 0]), "val": list(X[:, 1])})
+    assert len(scores) == 150
+    assert r.predict_scores({"mom": [1, 2, 3]}) is None
