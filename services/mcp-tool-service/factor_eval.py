@@ -79,6 +79,31 @@ def quantile_monotonicity(factor_panel, fwd_panel, n_q=5):
     return float(rho) if np.isfinite(rho) else 0.0
 
 
+def build_factor_panels(klines_by_symbol, factor_name):
+    """把"逐标的 K 线"转为 factor_report 所需的"逐调仓期横截面"(factor_panel, fwd_panel)。
+
+    每标的经 zoo 算因子序列 + 次日收益, 按时间对齐成截面。离线批(L2)的输入构造。
+    """
+    import zoo
+    facs, fwds = {}, {}
+    for sym, kl in (klines_by_symbol or {}).items():
+        if not kl:
+            continue
+        data = {"C": [r["close"] for r in kl], "O": [r.get("open", r["close"]) for r in kl],
+                "H": [r.get("high", r["close"]) for r in kl], "L": [r.get("low", r["close"]) for r in kl],
+                "V": [r.get("volume", 0) for r in kl]}
+        facs[sym] = np.asarray(zoo.compute(factor_name, data), dtype=float)
+        c = np.asarray(data["C"], dtype=float)
+        fwds[sym] = np.append(np.diff(c) / c[:-1], np.nan)   # 次日收益(末位 NaN)
+    syms = list(facs.keys())
+    if not syms:
+        return [], []
+    T = min(len(facs[s]) for s in syms)
+    fp = [[float(facs[s][t]) for s in syms] for t in range(T)]
+    wp = [[float(fwds[s][t]) for s in syms] for t in range(T)]
+    return fp, wp
+
+
 def factor_report(factor_panel, fwd_panel, n_quantiles=5, alpha=0.05, min_dates=20):
     """单因子诊断汇总 + 显著性硬判定。<min_dates 期 → 弃权。"""
     ics = ic_series(factor_panel, fwd_panel)

@@ -62,6 +62,22 @@ def test_degenerate_panel_abstains():
     assert rep["significant"] is None and rep["abstain_reason"] == "statistical_abstain"
 
 
+def test_build_factor_panels_from_klines():
+    fe = _fe()
+
+    def mk(seed):
+        rng = np.random.RandomState(seed)
+        c = 100 * np.cumprod(1 + 0.01 * rng.randn(40))
+        return [{"close": x, "open": x, "high": x * 1.01, "low": x * 0.99, "volume": 1e6} for x in c]
+
+    klines = {"A": mk(0), "B": mk(1), "C": mk(2)}
+    fp, wp = fe.build_factor_panels(klines, "Rev_5")
+    assert len(fp) == len(wp) > 0
+    assert all(len(xs) == 3 for xs in fp)        # 每截面 3 只股票
+    rep = fe.factor_report(fp, wp)               # 可直接喂 factor_report
+    assert "significant" in rep and "mean_rank_ic" in rep
+
+
 def test_insufficient_dates_abstain():
     fe = _fe()
     rng = np.random.RandomState(2)
