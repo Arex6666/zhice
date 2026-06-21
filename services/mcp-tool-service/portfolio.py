@@ -83,6 +83,67 @@ def hrp_weights(returns):
     return [float(x) for x in (w / w.sum())]
 
 
+def mvo(mu, cov, w_max=0.04, gamma=5.0):
+    """均值方差(cvxpy QP, long-only)：max μᵀw − γ·wᵀΣw s.t. Σw=1, 0≤w≤w_max。
+
+    不可行/求解失败 → 回退等权并带 fallback_reason（MVO 是误差最大化器，慎用）。
+    """
+    mu = np.asarray(mu, dtype=float)
+    cov = np.asarray(cov, dtype=float)
+    n = len(mu)
+    eq = [1.0 / n] * n
+    if n * w_max < 1 - 1e-9:
+        return {"weights": eq, "status": "infeasible",
+                "fallback_reason": f"w_max={w_max}×n={n}<1，无法满足 Σw=1"}
+    try:
+        import cvxpy as cp
+        w = cp.Variable(n)
+        obj = cp.Maximize(mu @ w - gamma * cp.quad_form(w, cp.psd_wrap(cov)))
+        cons = [cp.sum(w) == 1, w >= 0, w <= w_max]
+        prob = cp.Problem(obj, cons)
+        prob.solve()
+        if prob.status == "optimal" and w.value is not None:
+            wv = np.clip(np.asarray(w.value).flatten(), 0, None)
+            wv = wv / wv.sum()
+            return {"weights": [float(x) for x in wv], "status": "optimal"}
+        return {"weights": eq, "status": prob.status or "failed",
+                "fallback_reason": f"solver status={prob.status}"}
+    except Exception as e:  # noqa: BLE001 - cvxpy 缺失/求解异常 → 回退
+        return {"weights": eq, "status": "error", "fallback_reason": str(e)[:80]}
+
+
+def capacity_check(weights, capital, adv, max_participation=0.1):
+    """容量诊断：参与度 = 仓位市值/ADV；超阈标 illiquid（仅事后诊断，研究型）。"""
+    out = []
+    for i, w in enumerate(weights):
+        a = float(adv[i]) if adv[i] else 0.0
+        part = (float(w) * capital / a) if a > 0 else float("inf")
+        out.append({"index": i, "participation": round(part, 4),
+                    "illiquid": bool(part > max_participation)})
+    return {"names": out, "max_participation": max_participation}
+
+
+def build_portfolio(symbols, scores, returns_panel, method="hrp", w_max=0.04,
+                    enable_mvo=False):
+    """组合编排：默认 HRP/ERC 稳健档；MVO 仅 enable_mvo 且 N≤100 时启用，否则回退。"""
+    n = len(symbols)
+    fallback = None
+    if method == "mvo" and enable_mvo and scores is not None and n <= 100:
+        res = mvo(scores, np.cov(np.asarray(returns_panel), rowvar=False), w_max=w_max)
+        w = res["weights"]
+        if res["status"] != "optimal":
+            fallback = res.get("fallback_reason")
+            method = "erc"
+            w = risk_parity_erc(np.cov(np.asarray(returns_panel), rowvar=False))
+    elif method == "erc":
+        w = risk_parity_erc(np.cov(np.asarray(returns_panel), rowvar=False))
+    else:
+        method = "hrp"
+        w = hrp_weights(returns_panel)
+    return {"weights": {s: float(wi) for s, wi in zip(symbols, w)},
+            "method": method, "fallback_reason": fallback}
+
+
 def beats_one_over_n(port_rets, equal_rets):
     """组合 net 收益与 1/N 配对差分 → 块自助显著性。返回 {beats, mean_excess, p_value}。"""
     excess = np.asarray(port_rets, dtype=float) - np.asarray(equal_rets, dtype=float)

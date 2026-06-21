@@ -42,6 +42,41 @@ def test_hrp_weights_valid():
     assert abs(w.sum() - 1) < 1e-6 and (w >= 0).all() and len(w) == 8
 
 
+def test_mvo_constraints_satisfied():
+    pf = _pf()
+    rng = np.random.RandomState(0)
+    n = 10
+    mu = rng.randn(n) * 0.01
+    R = rng.randn(60, n)
+    cov = np.cov(R, rowvar=False)
+    out = pf.mvo(mu, cov, w_max=0.2)
+    w = np.array(out["weights"])
+    assert out["status"] == "optimal"
+    assert abs(w.sum() - 1) < 1e-4 and (w >= -1e-6).all() and (w <= 0.2 + 1e-4).all()
+
+
+def test_mvo_infeasible_falls_back():
+    pf = _pf()
+    out = pf.mvo(np.zeros(3), np.eye(3), w_max=0.2)   # 3*0.2=0.6<1 → 不可行
+    assert out["status"] != "optimal" and out.get("fallback_reason")
+    assert abs(sum(out["weights"]) - 1) < 1e-6        # 回退等权
+
+
+def test_capacity_check_flags_illiquid():
+    pf = _pf()
+    out = pf.capacity_check([0.5, 0.5], capital=1e9, adv=[1e6, 1e10])
+    assert out["names"][0]["illiquid"] is True        # 大仓位 vs 极小 ADV
+    assert out["names"][1]["illiquid"] is False
+
+
+def test_build_portfolio_hrp_default():
+    pf = _pf()
+    rng = np.random.RandomState(5)
+    syms = [f"S{i}" for i in range(8)]
+    out = pf.build_portfolio(syms, scores=None, returns_panel=rng.randn(120, 8), method="hrp")
+    assert abs(sum(out["weights"].values()) - 1) < 1e-6 and out["method"] == "hrp"
+
+
 def test_beats_one_over_n():
     pf = _pf()
     rng = np.random.RandomState(2)
