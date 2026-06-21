@@ -25,11 +25,18 @@ _LEGAL = {"Q1": ("04", "30"), "Q2": ("08", "31"), "Q3": ("10", "31"), "Q4": ("04
 
 
 def legal_deadline_for(period):
-    """报告期 '2023Q4' → 法定截止日字符串；年报(Q4)落次年 4/30。"""
-    yr = int(period[:4])
-    q = period[-2:]
-    mm, dd = _LEGAL[q]
-    if q == "Q4":
+    """报告期 '2023Q4' → 法定截止日字符串；年报(Q4)落次年 4/30。畸形输入返回 None 供调用方弃权。"""
+    if not period or not isinstance(period, str) or len(period) < 6:
+        return None
+    mm_dd = _LEGAL.get(period[-2:])
+    if mm_dd is None:
+        return None
+    try:
+        yr = int(period[:4])
+    except ValueError:
+        return None
+    mm, dd = mm_dd
+    if period[-2:] == "Q4":
         yr += 1
     return f"{yr}-{mm}-{dd}"
 

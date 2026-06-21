@@ -36,3 +36,4 @@ def test_target_scale_min_and_capped():
     assert ro.target_scale("normal", "normal")["scale"] == 1.0    # 永不>1
     assert ro.target_scale("elevated", "extreme")["scale"] == 0.5  # 两刹车取 min
     assert ro.target_scale("low", "low", floor=0.6)["scale"] == 1.0
+    assert ro.target_scale("normal", "normal", floor=1.5)["scale"] == 1.0  # floor>1 不得放大>1

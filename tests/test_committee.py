@@ -167,6 +167,13 @@ def test_factor_member_vote_abstentions():
     assert v["abstain"] is True and v["abstain_reason"] == "style_explained"
 
 
+def test_factor_member_vote_missing_direction_abstains():
+    com = _committee()
+    fe = {"factor_name": "Mom", "family_verdict": "有效稳定", "significant": 1}  # 缺 direction
+    v = com.factor_member_vote(fe, stock_quantile=4, residual_quantile=4)
+    assert v["abstain"] is True and v["abstain_reason"] == "missing_metadata"
+
+
 def test_factor_member_vote_direction_bottom_quantile():
     com = _committee()
     fe = {"factor_name": "IdioVol", "family_verdict": "有效稳定", "significant": 1, "direction": "-"}

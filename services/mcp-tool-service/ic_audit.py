@@ -12,7 +12,12 @@ def audit(ic_series, min_n=20, recent_frac=0.25):
         return {"verdict": "样本不足", "abstain_reason": "insufficient_history", "n": n}
     mean = float(a.mean())
     sd = float(a.std(ddof=1)) if n > 1 else 0.0
-    icir = float(mean / sd) if sd > 0 else 0.0
+    if sd > 0:
+        icir = float(mean / sd)
+    elif abs(mean) >= 0.01:
+        icir = 999.0 if mean > 0 else -999.0   # 零波动强信号=最稳(非 ICIR=0 当不稳定)
+    else:
+        icir = 0.0
     half = n // 2
     h1, h2 = a[:half].mean(), a[half:]. mean()
     same_sign = bool(np.sign(h1) == np.sign(h2) and h1 != 0)

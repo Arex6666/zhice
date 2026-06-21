@@ -79,8 +79,17 @@ OPS = {
     "Sign": lambda x: np.sign(_arr(x)),
 }
 
+def _safe_div(a, b):
+    """安全除法：0 分母 → NaN（绝不产 ±Inf，停牌/数据缺口填 0 收盘价频发）。"""
+    a = np.asarray(a, dtype=float)
+    b = np.asarray(b, dtype=float)
+    out = np.full(np.broadcast(a, b).shape, np.nan)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.divide(a, b, out=out, where=(b != 0))
+
+
 _BINOPS = {ast.Add: lambda a, b: a + b, ast.Sub: lambda a, b: a - b,
-           ast.Mult: lambda a, b: a * b, ast.Div: lambda a, b: a / b}
+           ast.Mult: lambda a, b: a * b, ast.Div: _safe_div}
 _CMPOPS = {ast.Gt: lambda a, b: (_arr(a) > _arr(b)).astype(float),
            ast.Lt: lambda a, b: (_arr(a) < _arr(b)).astype(float)}
 

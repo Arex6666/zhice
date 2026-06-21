@@ -27,6 +27,16 @@ def test_decaying_ic_flagged():
     assert out["recent_drift"] < 0
 
 
+def test_zero_variance_strong_positive_is_effective():
+    ia = _ia()
+    assert ia.audit([0.05] * 40)["verdict"] == "有效稳定"   # 零波动强正因子=最稳, 非"不稳定"
+
+
+def test_zero_variance_weak_mean_invalid():
+    ia = _ia()
+    assert ia.audit([0.005] * 40)["verdict"] == "失效"      # 均值过弱
+
+
 def test_insufficient_abstain():
     ia = _ia()
     out = ia.audit([0.05] * 5)

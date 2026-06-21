@@ -141,8 +141,11 @@ def factor_member_vote(factor_eval, stock_quantile, residual_quantile, n_quantil
     if residual_quantile != stock_quantile:   # 控制风格后不再同侧极端 → 被风格解释
         return {"lens": f"量化因子:{name}", "verdict": "中性", "confidence": 0.0,
                 "evidence": [], "abstain": True, "abstain_reason": "style_explained"}
+    if "direction" not in fe:                  # 方向元数据缺失 → 弃权(勿默认 '+' 致负向因子反号)
+        return {"lens": f"量化因子:{name}", "verdict": "中性", "confidence": 0.0,
+                "evidence": [], "abstain": True, "abstain_reason": "missing_metadata"}
     side = 1 if stock_quantile == top else -1
-    eff = side * (1 if fe.get("direction", "+") == "+" else -1)
+    eff = side * (1 if fe.get("direction") == "+" else -1)
     verdict = "偏多" if eff > 0 else "偏空"
     ev = [{"type": "stat", "source": "factor_eval",
            "value": f"{name} 极端分位{stock_quantile}/{n_quantiles}, RankIC={fe.get('mean_rank_ic')}",

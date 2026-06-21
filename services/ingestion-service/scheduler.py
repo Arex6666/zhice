@@ -147,11 +147,13 @@ async def fill_reviews():
             failures += 1
             return
 
-        cutoff = datetime.now(timezone.utc) - timedelta(days=1)
+        now = datetime.now(timezone.utc)
         for row in pending:
             try:
                 created_at = row.get("created_at")
-                if not created_at or not _older_than(created_at, cutoff):
+                # 仅复盘 ~1 日龄记录(上界防 horizon 漂移);超窗留 pending。
+                # 注:更严的做法是取 T+1 收盘价(而非实时价)算 ret_1d,需联网 K 线,列为后续。
+                if not created_at or not _in_review_window(created_at, now):
                     continue
                 symbol = row.get("symbol") or ""
                 if not symbol.upper().startswith("ASHARE:"):
@@ -259,6 +261,23 @@ async def scan_alerts():
                     alerts_raised += 1
             except Exception:  # noqa: BLE001
                 failures += 1
+
+
+def _review_age_days(created_at: str, now: datetime):
+    """研判记录的年龄(整天)；解析失败返回 None。"""
+    try:
+        dt = datetime.fromisoformat(created_at)
+    except (ValueError, TypeError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return (now - dt).days
+
+
+def _in_review_window(created_at: str, now: datetime, lo_days: int = 1, hi_days: int = 4) -> bool:
+    """是否处于复盘窗 [lo,hi] 天（上界防 horizon 随调度/周末漂移；下界保证 T+1 已过）。"""
+    age = _review_age_days(created_at, now)
+    return age is not None and lo_days <= age <= hi_days
 
 
 def _older_than(created_at: str, cutoff: datetime) -> bool:

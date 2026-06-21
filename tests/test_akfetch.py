@@ -19,6 +19,13 @@ def test_legal_deadline():
     assert af.legal_deadline_for("2024Q3") == "2024-10-31"
 
 
+def test_legal_deadline_malformed_returns_none():
+    af = _af()
+    for bad in ["2023", "", None, "2023Q9", "20xxQ4"]:
+        assert af.legal_deadline_for(bad) is None
+    assert af.legal_deadline_for("2023Q4") == "2024-04-30"   # 正常不退化
+
+
 def test_parse_baidu_valuation():
     af = _af()
     df = pd.DataFrame({"date": ["2024-01-02", "2024-01-03"], "value": ["30.5", "28.1"]})

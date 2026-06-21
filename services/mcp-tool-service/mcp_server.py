@@ -8,6 +8,7 @@
 行情/新闻抓取与解析封装在 finance.py，纯计算在 indicators.py / backtest.py（均可脱网单元测试）。
 工具内部不吞异常——出错时抛出，由 FastMCP 自动置 isError=True，使客户端/智能体能感知失败。
 """
+import math
 import os
 import time
 
@@ -247,7 +248,8 @@ async def compute_factor_series(factor_name: str, closes: list, opens: list = No
     data = {"C": closes, "O": opens or closes, "H": highs or closes,
             "L": lows or closes, "V": volumes or [1.0] * len(closes)}
     vals = zoo_lib.compute(factor_name, data)
-    return {"factor": factor_name, "values": [None if v != v else float(v) for v in vals],
+    return {"factor": factor_name,
+            "values": [None if not math.isfinite(v) else float(v) for v in vals],  # NaN/±Inf→null(合法JSON)
             "execution_mode": "realtime", **{k: v for k, v in zoo_lib.FACTORS[factor_name].items() if k != "formula"}}
 
 
