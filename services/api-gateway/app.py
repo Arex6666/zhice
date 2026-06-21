@@ -51,7 +51,7 @@ async def finance_analyze(req: Request):
     _metrics["requests"] += 1
     _metrics["finance"] += 1
     body = await req.json()
-    async with httpx.AsyncClient(timeout=180) as c:
+    async with httpx.AsyncClient(timeout=260) as c:   # deep+agentic 自主取证(LLM多轮)留足
         r = await c.post(f"{AGENT_URL}/finance/analyze", json=body)
         return JSONResponse(_safe_json(r), status_code=r.status_code)
 

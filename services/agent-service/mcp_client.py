@@ -38,6 +38,13 @@ async def list_tools_openai(session):
     return out
 
 
+async def realtime_tools_openai(session):
+    """委员会自主工具调用只暴露 **realtime** 工具（§3.4：offline 重计算工具不进 SSE 热路径）。"""
+    import agentic
+    return [t for t in await list_tools_openai(session)
+            if not agentic.is_offline_tool(t["function"]["name"])]
+
+
 async def call_tool(session, name, arguments):
     """调用一个 MCP 工具，把返回内容拼成纯文本（供回填给 LLM）。
 

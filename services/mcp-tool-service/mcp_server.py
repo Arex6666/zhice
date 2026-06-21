@@ -41,6 +41,8 @@ import ic_audit as ic_audit_lib
 import factor_gate as factor_gate_lib
 import multi_test as multi_test_lib
 import alpha_eval as alpha_eval_lib
+import altfactors as altfactors_lib
+import industry_map as industry_map_lib
 
 _ASHARE_INDEX = "ASHARE:sh000001"  # 上证指数（跨资产 β 默认基准）
 
@@ -86,9 +88,15 @@ async def get_universe(date: str, lsy_filter: str = "off") -> dict:
 
 
 @mcp.tool()
-async def asof_value(symbol: str, field: str, date: str, kind: str = "panel") -> dict:
-    """[realtime] 防前视时点取值(visible_date/announce_date<=date 最近)。kind∈{panel,fundamental}。"""
-    return await pit_panel.fetch_asof(symbol, field, date, kind)
+async def asof_value(symbol: str, field: str, date: str, kind: str = "panel",
+                     indicator: str = None, period: str = None) -> dict:
+    """[realtime] 防前视时点取值(visible_date/announce_date<=date 最近)。kind∈{panel,fundamental}。
+
+    估值因子(百度)走 indicator×period 维度：给 indicator 时按 field:indicator:period 复合键检索
+    (对齐 §4 L0 stock_zh_valuation_baidu 单指标×period 笛卡尔落库口径)。
+    """
+    key = f"{field}:{indicator}:{period or '默认'}" if indicator else field
+    return await pit_panel.fetch_asof(symbol, key, date, kind)
 
 
 @mcp.tool()
@@ -101,6 +109,30 @@ async def read_factor_eval(factor_name: str, as_of: str = None, universe_filter:
 async def read_portfolio(portfolio_id: str, as_of: str = None) -> dict:
     """[realtime] 读 L4 离线落库的组合权重/对比1N/容量(委员会与仪表盘只读)。"""
     return await pit_panel.fetch_portfolio(portfolio_id, as_of)
+
+
+@mcp.tool()
+async def get_panel(date: str, fields: str = None) -> dict:
+    """[realtime] 时点面板矩阵(每 symbol×field 取 visible_date<=date 最新值, 防前视)。fields 逗号分隔。"""
+    return await pit_panel.fetch_panel(date, [f for f in (fields or "").split(",") if f] or None)
+
+
+@mcp.tool()
+async def data_coverage_report(date: str) -> dict:
+    """[realtime] 时点数据覆盖度(面板股数/字段数/财务行数/可投域行数; 供冷启动进度与 backtestable_from)。"""
+    return await pit_panel.fetch_coverage(date)
+
+
+@mcp.tool()
+async def pit_data_health() -> dict:
+    """[realtime] PIT 数据地基健康度(各表行数 + universe PIT 状态; 诚实暴露幸存者偏差状态)。"""
+    return await pit_panel.fetch_data_health()
+
+
+@mcp.tool()
+async def list_factor_meta(factor_name: str = None) -> dict:
+    """[realtime] 列出/查询因子元数据(PIT状态/数据源/历史深度/方向/行业映射来源/caveat)。"""
+    return await pit_panel.fetch_factor_meta(factor_name)
 
 
 @mcp.tool()
@@ -391,6 +423,53 @@ async def evaluate_factor(factor_values: list, forward_returns: list, library_ma
     """[offline] AlphaEval 五维无回测初筛(PPS/PFS/多样性熵 + 硬闸门); LLM 候选因子先过此关。"""
     return {**await _offload(alpha_eval_lib.evaluate, factor_values, forward_returns, library_matrix),
             "execution_mode": "offline"}
+
+
+@mcp.tool()
+async def efficient_frontier(mu: list, cov: list, n_points: int = 10, w_max: float = 0.04) -> dict:
+    """[offline] research-only 有效前沿(γ网格 long-only MVO; 误差最大化器, 强制并列1/N, 不可实盘)。"""
+    return {**await _offload(portfolio_lib.efficient_frontier, mu, cov, n_points, w_max),
+            "execution_mode": "offline"}
+
+
+@mcp.tool()
+async def shrink_cov_report(returns: list, cond_threshold: float = 1e4) -> dict:
+    """[offline] 收缩协方差诊断(δ/条件数/可靠性标记, 供治理 R11 判估计可靠性)。"""
+    return {**await _offload(portfolio_lib.shrink_cov_report, returns, cond_threshold),
+            "execution_mode": "offline"}
+
+
+@mcp.tool()
+async def altfactor(name: str, series: list = None, actual: float = None, expected: float = None,
+                    std_hist: float = None, pledge_ratio: float = None,
+                    days_to_release: int = None, release_ratio: float = None) -> dict:
+    """[realtime] 另类/风险闸因子计算(PEAD-SUE/EPS修正/Chip户数/北向/质押·解禁); 不足→弃权。"""
+    af = altfactors_lib
+    direction = af.FACTOR_DIRECTIONS.get(name, "+")
+    if name == "pead_sue":
+        val = af.pead_sue(actual, expected, std_hist)
+    elif name == "eps_revision":
+        val = af.eps_revision(series or [])
+    elif name == "chip_factor":
+        val = af.chip_factor(series or [])
+    elif name == "northbound_flow":
+        val = af.northbound_flow(series or [])
+    elif name == "pledge_risk_gate":
+        return {**af.pledge_risk_gate(pledge_ratio), "name": name, "execution_mode": "realtime"}
+    elif name == "restricted_release_gate":
+        return {**af.restricted_release_gate(days_to_release, release_ratio), "name": name,
+                "execution_mode": "realtime"}
+    else:
+        return {"error": f"unknown altfactor {name}", "execution_mode": "realtime"}
+    return {"name": name, "value": val, "direction": direction,
+            "abstain": val is None, "execution_mode": "realtime"}
+
+
+@mcp.tool()
+async def industry_dummies(symbols: list, sym2ind: dict) -> dict:
+    """[realtime] 申万一级行业哑变量矩阵(中性化前置; today_snapshot_only PIT, 带 coverage/caveat)。"""
+    matrix, order, meta = industry_map_lib.build_industry_dummies(symbols, sym2ind, with_meta=True)
+    return {"matrix": matrix, "industry_order": order, **meta, "execution_mode": "realtime"}
 
 
 if __name__ == "__main__":

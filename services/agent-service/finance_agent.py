@@ -132,6 +132,37 @@ async def analyze(symbol, mode="deep"):
             data["vol_regime"] = None
         llm, model = _llm()
 
+        # 【MCP 用满】委员会前置自主取证：把 realtime MCP 工具目录交给 LLM，让它自行决定调哪个工具
+        # 取证（agentic tool-use，而非仅预取喂数据）。§3.4 护栏：offline 工具硬拒 + 单调用超时 + 轮次上限。
+        if os.getenv("COMMITTEE_AGENTIC", "1") == "1" and os.getenv("LLM_API_KEY"):
+            try:
+                import agentic
+                tools = await mcp_client.realtime_tools_openai(session)
+
+                async def _raw(name, args):
+                    try:
+                        return await asyncio.wait_for(
+                            mcp_client.call_tool_data(session, name, args), timeout=15)
+                    except Exception as e:  # noqa: BLE001 - 单工具失败隔离, 不断主流程
+                        return {"error": f"{type(e).__name__}: {str(e)[:100]}"}
+
+                guarded = agentic.make_guarded_caller(_raw)
+                sys_p = ("你是智策量化研究助理。可调用实时工具(行情/K线/指标/新闻/因子评估/组合只读等)"
+                         "为该标的取证，最多两轮；取够后用中文给出含证据出处的简短研判要点。"
+                         "诚实约束：数据缺失/弃权要如实说，不编造。")
+                # 整体时间盒(成本/延迟护栏)：超预算即放弃自主取证、回落委员会主流程，绝不拖垮网关超时
+                research = await asyncio.wait_for(
+                    agentic.run_agentic(
+                        llm, model,
+                        [{"role": "system", "content": sys_p},
+                         {"role": "user", "content": f"请研判 {symbol} 当前态势，自行取证。"}],
+                        tools, guarded, max_rounds=int(os.getenv("COMMITTEE_AGENTIC_ROUNDS", "2"))),
+                    timeout=float(os.getenv("COMMITTEE_AGENTIC_BUDGET", "90")))
+                data["agentic_research"] = research.get("final")
+                data["agentic_trace"] = research.get("trace")
+            except Exception:  # noqa: BLE001 - agentic 取证(含超时)为增强项, 失败不影响委员会主流程
+                data["agentic_research"] = None
+
         async def gather_fn(_):
             return data
 
@@ -144,6 +175,9 @@ async def analyze(symbol, mode="deep"):
         result["quote"] = data.get("quote")
         result["news"] = data.get("news")
         result["signals"] = data.get("signals")
+        if data.get("agentic_research"):     # 自主取证要点 + 工具调用轨迹(供仪表盘展示 MCP 活性)
+            result["agentic"] = {"research": data.get("agentic_research"),
+                                 "trace": data.get("agentic_trace")}
         # 落库供自审计
         try:
             price = (data.get("quote") or {}).get("price")

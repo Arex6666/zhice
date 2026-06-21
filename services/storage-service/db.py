@@ -339,6 +339,76 @@ def read_portfolio(path, portfolio_id, as_of=None):
         return dict(r) if r else None
 
 
+_FM_COLS = ["factor_name", "source", "akshare_api", "fetch_granularity", "pit_status",
+            "baidu_indicator", "baidu_period", "compute_path", "history_depth_days",
+            "backtestable_from", "survivorship_note", "coverage", "direction",
+            "sw_industry_source", "regime_breaks", "caveat"]
+
+
+def add_factor_meta(path, row):
+    """因子元数据落库（PIT 状态/数据源/历史深度/方向/行业映射来源等；缺列填 None）。"""
+    vals = [row.get(k) for k in _FM_COLS]
+    with _conn(path) as c:
+        c.execute(f"INSERT OR REPLACE INTO factor_meta({','.join(_FM_COLS)}) "
+                  f"VALUES({','.join('?' * len(_FM_COLS))})", vals)
+
+
+def read_factor_meta(path, factor_name):
+    with _conn(path) as c:
+        r = c.execute("SELECT * FROM factor_meta WHERE factor_name=?", (factor_name,)).fetchone()
+        return dict(r) if r else None
+
+
+def list_factor_meta(path):
+    with _conn(path) as c:
+        return [dict(r) for r in c.execute("SELECT * FROM factor_meta ORDER BY factor_name").fetchall()]
+
+
+def read_panel(path, date, fields=None):
+    """时点面板矩阵：每个 (symbol,field) 取 visible_date<=date 的最新值（防前视）。"""
+    q = "SELECT symbol,field,value,visible_date FROM panel_daily WHERE visible_date<=? "
+    args = [date]
+    if fields:
+        q += "AND field IN (%s) " % ",".join("?" * len(fields))
+        args += list(fields)
+    q += "ORDER BY symbol,field,visible_date DESC"
+    out, seen = {}, set()
+    with _conn(path) as c:
+        for r in c.execute(q, args).fetchall():
+            k = (r["symbol"], r["field"])
+            if k in seen:
+                continue
+            seen.add(k)
+            out.setdefault(r["symbol"], {})[r["field"]] = r["value"]
+    return out
+
+
+def data_coverage(path, date):
+    """时点数据覆盖度（供仪表盘判 backtestable_from / 冷启动进度）。"""
+    with _conn(path) as c:
+        ns = c.execute("SELECT COUNT(DISTINCT symbol) n FROM panel_daily WHERE visible_date<=?",
+                       (date,)).fetchone()["n"]
+        nf = c.execute("SELECT COUNT(DISTINCT field) n FROM panel_daily WHERE visible_date<=?",
+                       (date,)).fetchone()["n"]
+        nfund = c.execute("SELECT COUNT(*) n FROM fundamentals_pit WHERE announce_date<=?",
+                          (date,)).fetchone()["n"]
+        nuniv = c.execute("SELECT COUNT(*) n FROM index_membership WHERE date<=?",
+                          (date,)).fetchone()["n"]
+    return {"date": date, "panel_symbols": ns, "panel_fields": nf,
+            "fundamentals_rows": nfund, "universe_rows": nuniv}
+
+
+def pit_data_health(path):
+    """PIT 数据地基健康度：各表行数 + universe PIT 状态（诚实暴露幸存者偏差状态）。"""
+    tables = ["panel_daily", "fundamentals_pit", "index_membership", "events",
+              "factor_meta", "factor_eval", "portfolios"]
+    with _conn(path) as c:
+        counts = {t: c.execute(f"SELECT COUNT(*) n FROM {t}").fetchone()["n"] for t in tables}
+        ups = [r["universe_pit_status"] for r in
+               c.execute("SELECT DISTINCT universe_pit_status FROM index_membership").fetchall()]
+    return {"table_counts": counts, "universe_pit_status": ups}
+
+
 def add_membership(path, date, symbol, weight, index_code, universe_pit_status, name=""):
     with _conn(path) as c:
         c.execute(

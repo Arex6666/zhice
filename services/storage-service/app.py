@@ -204,6 +204,35 @@ def pit_asof(symbol: str, field: str, date: str, kind: str = "panel"):
     return r or {"value": None, "abstain_reason": "data_missing"}
 
 
+@app.get("/pit/panel")
+def pit_panel_matrix(date: str, fields: str = None):
+    flds = [f for f in (fields or "").split(",") if f.strip()] or None
+    return db.read_panel(DB_PATH, date, flds)
+
+
+@app.get("/pit/coverage")
+def pit_coverage(date: str):
+    return db.data_coverage(DB_PATH, date)
+
+
+@app.get("/pit/data_health")
+def pit_data_health():
+    return db.pit_data_health(DB_PATH)
+
+
+@app.post("/pit/factor_meta")
+def pit_add_factor_meta(row: dict):
+    db.add_factor_meta(DB_PATH, row)
+    return {"ok": True, "factor_name": row.get("factor_name")}
+
+
+@app.get("/pit/factor_meta")
+def pit_read_factor_meta(factor_name: str = None):
+    if factor_name:
+        return db.read_factor_meta(DB_PATH, factor_name) or {"error": "not_found"}
+    return db.list_factor_meta(DB_PATH)
+
+
 @app.get("/watchlist")
 def watchlist():
     return db.get_watchlist(DB_PATH)

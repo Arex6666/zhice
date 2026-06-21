@@ -41,6 +41,38 @@ async def fetch_factor_eval(factor_name, as_of=None, universe_filter="lsy"):
         return {**r.json(), "execution_mode": EXECUTION_MODE}
 
 
+async def fetch_panel(date, fields=None):
+    params = {"date": date}
+    if fields:
+        params["fields"] = ",".join(fields)
+    async with httpx.AsyncClient(timeout=8) as c:
+        r = await c.get(f"{STORAGE_URL}/pit/panel", params=params)
+        r.raise_for_status()
+        return {"date": date, "panel": r.json(), "execution_mode": EXECUTION_MODE}
+
+
+async def fetch_coverage(date):
+    async with httpx.AsyncClient(timeout=8) as c:
+        r = await c.get(f"{STORAGE_URL}/pit/coverage", params={"date": date})
+        r.raise_for_status()
+        return {**r.json(), "execution_mode": EXECUTION_MODE}
+
+
+async def fetch_data_health():
+    async with httpx.AsyncClient(timeout=8) as c:
+        r = await c.get(f"{STORAGE_URL}/pit/data_health")
+        r.raise_for_status()
+        return {**r.json(), "execution_mode": EXECUTION_MODE}
+
+
+async def fetch_factor_meta(factor_name=None):
+    params = {"factor_name": factor_name} if factor_name else {}
+    async with httpx.AsyncClient(timeout=8) as c:
+        r = await c.get(f"{STORAGE_URL}/pit/factor_meta", params=params)
+        r.raise_for_status()
+        return {"factor_meta": r.json(), "execution_mode": EXECUTION_MODE}
+
+
 async def fetch_portfolio(portfolio_id, as_of=None):
     params = {"portfolio_id": portfolio_id}
     if as_of:
