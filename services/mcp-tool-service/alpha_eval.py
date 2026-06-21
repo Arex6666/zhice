@@ -56,6 +56,18 @@ def diversity_entropy(library_matrix):
     return float(-(p * np.log(p)).sum() / np.log(len(eig)))
 
 
+def originality(values, library_values, corr_thresh=0.7):
+    """原创性：候选因子与库内任一因子 |相关| 超阈即判非原创(防换皮/共线)。"""
+    f = np.asarray(values, dtype=float)
+    max_corr = 0.0
+    for lib in (library_values or []):
+        a, b = _finite_pair(f, lib)
+        if len(a) < 5 or np.std(a) == 0 or np.std(b) == 0:
+            continue
+        max_corr = max(max_corr, abs(float(pearsonr(a, b)[0])))
+    return {"original": bool(max_corr < corr_thresh), "max_corr": round(max_corr, 3)}
+
+
 def evaluate(factor_values, forward_returns, library_matrix=None, pps_min=0.02, pfs_min=0.8):
     """五维初筛汇总 + 硬闸门：PPS 须超 max(pps_min, 2-sigma 噪声地板 2/√n)(样本越小要求越高,
     杜绝把随机 IC 当预测力) 且 PFS 达标，才放行进下一关。"""

@@ -41,6 +41,38 @@ def test_snapshot_valuation_posts_last_value():
     assert out["posted"] == 1 and posted[0]["value"] == 28.0 and posted[0]["field"] == "市盈率(动)"
 
 
+def test_snapshot_factor_eval_posts_rows():
+    ps = _ps()
+    posted = []
+
+    async def eval_fn(f):
+        return {"mean_rank_ic": 0.05, "significant": 1, "family_verdict": "有效稳定"}
+
+    async def post(row):
+        posted.append(row)
+
+    out = asyncio.run(ps.snapshot_factor_eval(eval_fn, post, ["Mom", "Rev_5"], as_of="2024-06-01"))
+    assert out["posted"] == 2
+    assert posted[0]["factor_name"] == "Mom" and posted[0]["as_of"] == "2024-06-01"
+    assert posted[0]["mean_rank_ic"] == 0.05 and posted[0]["computed_at"] == "2024-06-01"
+
+
+def test_snapshot_factor_eval_isolates_failure():
+    ps = _ps()
+    posted = []
+
+    async def eval_fn(f):
+        if f == "BAD":
+            raise RuntimeError("compute boom")
+        return {"significant": 1}
+
+    async def post(row):
+        posted.append(row)
+
+    out = asyncio.run(ps.snapshot_factor_eval(eval_fn, post, ["GOOD", "BAD"], as_of="2024-06-01"))
+    assert out["posted"] == 1 and out["failures"] == 1
+
+
 def test_snapshot_isolates_per_symbol_failure():
     ps = _ps()
     posted = []

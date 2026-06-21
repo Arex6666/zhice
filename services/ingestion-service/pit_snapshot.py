@@ -42,6 +42,21 @@ async def snapshot_valuation(fetch_val, post_panel, symbols, indicator="市盈�
     return {"posted": posted, "failures": failures}
 
 
+async def snapshot_factor_eval(eval_fn, post_fn, factors, as_of, universe_filter="lsy"):
+    """L2 离线批写侧：逐因子计算评估(eval_fn)并 POST /pit/factor_eval(读侧供委员会)。失败隔离。"""
+    posted, failures = 0, 0
+    for f in factors:
+        try:
+            rep = await eval_fn(f)
+            row = {"factor_name": f, "as_of": as_of, "universe_filter": universe_filter,
+                   "computed_at": as_of, **(rep or {})}
+            await post_fn(row)
+            posted += 1
+        except Exception:  # noqa: BLE001 - 单因子失败隔离
+            failures += 1
+    return {"posted": posted, "failures": failures}
+
+
 # ---------------------------------------------------------------- 真实网络包装(薄, 由 scheduler 直调)
 def _real_fetch_cons(client):
     async def f(index_code):

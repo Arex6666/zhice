@@ -32,6 +32,17 @@ def test_diversity_entropy_orthogonal_gt_duplicated():
     assert ae.diversity_entropy(orth) > ae.diversity_entropy(dup)
 
 
+def test_originality_rejects_collinear_factor():
+    ae = _ae()
+    rng = np.random.RandomState(0)
+    base = rng.randn(200)
+    lib = [base + 0.01 * rng.randn(200)]            # 与库内因子近重复
+    bad = ae.originality(base, lib)
+    assert bad["original"] is False and bad["max_corr"] > 0.9
+    good = ae.originality(rng.randn(200), lib)       # 正交
+    assert good["original"] is True
+
+
 def test_evaluate_combines_and_gates():
     ae = _ae()
     rng = np.random.RandomState(1)
