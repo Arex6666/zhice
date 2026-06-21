@@ -370,6 +370,27 @@ section { margin-top: 24px; }
 .modal .close { margin-top: 18px; width: 100%; background: linear-gradient(135deg, var(--jade), var(--jade-deep));
   color: #06140d; border: none; font-family: var(--mono); font-weight: 700; padding: 10px; border-radius: 9px; cursor: pointer; }
 
+/* 因子体检·大白话解读 */
+.narr { font-size: 14px; line-height: 1.75; color: var(--ink); }
+.narr-h { font-family: var(--serif); font-size: 18px; font-weight: 700; letter-spacing: 1px;
+  color: var(--jade); margin-bottom: 10px; }
+.narr p { margin: 6px 0 10px; }
+.narr-dim { color: var(--ink-soft); font-size: 13px; }
+.narr-tag { display: inline-block; font-family: var(--mono); font-size: 12px; font-weight: 700;
+  letter-spacing: .5px; padding: 4px 12px; border-radius: 8px; margin: 10px 0 6px; }
+.narr-tag.ok { color: var(--up); background: var(--up-soft); border: 1px solid rgba(255,77,82,.35); }
+.narr-tag.flat { color: var(--ink-soft); background: rgba(159,178,166,.08); border: 1px solid var(--line); }
+.narr-tag.warn { color: var(--amber); background: rgba(231,189,94,.08); border: 1px solid rgba(231,189,94,.35); }
+.narr-list { margin: 4px 0 8px; padding-left: 4px; list-style: none; display: flex; flex-direction: column; gap: 7px; }
+.narr-list li { font-size: 13.5px; line-height: 1.6; color: var(--ink-soft); padding-left: 18px; position: relative; }
+.narr-list li::before { content: "▸"; position: absolute; left: 0; color: var(--jade-deep); }
+.narr-list li b { color: var(--ink); }
+.narr-ic { font-family: var(--mono); font-size: 12px; padding: 1px 7px; border-radius: 6px;
+  background: var(--up-soft); white-space: nowrap; }
+.narr-foot { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line);
+  font-size: 12.5px; line-height: 1.7; color: var(--ink-faint); }
+.narr-foot b { color: var(--jade); font-family: var(--mono); }
+
 .hidden { display: none !important; }
 
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }

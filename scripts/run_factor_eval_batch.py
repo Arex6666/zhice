@@ -92,7 +92,7 @@ def main(symbols=None, as_of=None, post=True):
         out = {}
         for s in symbols:
             try:
-                out[s] = await ad.get_kline(s, "daily", 250)
+                out[s] = await ad.get_kline(s, "daily", 400)   # >252 才能算长窗动量(Mom_12_1/Hi52)
             except Exception as e:  # noqa: BLE001
                 print(f"  {s}: skip ({type(e).__name__})")
         return out

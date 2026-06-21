@@ -659,28 +659,109 @@ function renderReview(data){
 const QUANT_FACTORS = ["Mom_12_1", "Mom_6_1", "Rev_1", "Rev_5", "Rev_21",
   "TotalVol", "Vol_60", "DownVol", "HiLoRange", "MaxRet", "Hi52", "MA_Trend",
   "RangePos", "Amihud", "VolRatio", "PVCorr"];
+// 每个因子的"大白话"含义：fam=家族，plain=显著时通俗说明（这条挑股规律到底在说什么）
+const FACTOR_EXPLAIN = {
+  Mom_12_1: {cn:"12-1月动量", fam:"动量", plain:"过去一年涨得好的股票倾向继续涨（强者恒强）"},
+  Mom_6_1:  {cn:"6-1月动量",  fam:"动量", plain:"半年来的赢家倾向延续走强"},
+  Rev_1:    {cn:"1日反转",    fam:"反转", plain:"昨天涨多的今天更可能回落——A股散户「追高易套」的典型特征"},
+  Rev_5:    {cn:"5日反转",    fam:"反转", plain:"近一周涨多的股票接下来更可能回调"},
+  Rev_21:   {cn:"1月反转",    fam:"反转", plain:"近一月涨多的下月倾向回落"},
+  TotalVol: {cn:"20日波动",   fam:"低波", plain:"越「上蹿下跳」的股票未来收益越差（稳的反而更优）"},
+  Vol_60:   {cn:"60日波动",   fam:"低波", plain:"长期波动大的股票后续更弱（低波异象）"},
+  DownVol:  {cn:"下行波动",   fam:"低波", plain:"下跌时抖得厉害的股票后续更差"},
+  HiLoRange:{cn:"日内振幅",   fam:"低波", plain:"天天大开大合的股票后续更弱"},
+  MaxRet:   {cn:"最大单日涨幅",fam:"彩票效应", plain:"近期有过「暴涨日」的股票后续反而更差（博彩心理被高估）"},
+  Hi52:     {cn:"52周高点接近度",fam:"趋势", plain:"越靠近一年新高的股票越倾向继续创新高"},
+  MA_Trend: {cn:"均线趋势",   fam:"趋势", plain:"短均线压住长均线＝上升趋势，倾向延续"},
+  RangePos: {cn:"区间位置",   fam:"趋势", plain:"价格在近20日高低带里越靠上，越偏强"},
+  Amihud:   {cn:"非流动性",   fam:"流动性", plain:"越冷清难成交的股票要更高「流动性溢价」"},
+  VolRatio: {cn:"量比",       fam:"量能", plain:"异常放量的股票后续更可能回落"},
+  PVCorr:   {cn:"量价相关",   fam:"量能", plain:"放量涨/缩量跌（量价配合）的趋势更可信"},
+};
+
+function buildQuantNarrative(items){
+  // items: [{f, r}] —— 据真实评估结果生成"大白话"解读（诚实：小样本/弃权如实说）
+  const sig = items.filter(x => x.r.significant === 1);
+  const notsig = items.filter(x => x.r.significant === 0);
+  const abst = items.filter(x => x.r.significant !== 0 && x.r.significant !== 1);
+  const ex = f => FACTOR_EXPLAIN[f] || {cn:f, plain:""};
+  let h = '<div class="narr">';
+  h += '<div class="narr-h">📊 这次体检说明了什么（大白话）</div>';
+  h += '<p>本次在 <b>中证300 口径</b>（已剔除小盘股，防壳价值污染）上体检了 <b>'+items.length
+     + '</b> 个「价量因子」。一个因子＝一条「挑股票的规律」；体检就是看每条规律在历史截面上<b>到底站不站得住脚</b>。</p>';
+  if (sig.length){
+    h += '<div class="narr-tag ok">✓ 站得住脚的规律（'+sig.length+' 条，统计显著）</div><ul class="narr-list">';
+    sig.forEach(x => { const e = ex(x.f);
+      h += '<li><b>'+esc(e.cn)+'</b>（'+esc(e.fam)+'）：'+esc(e.plain)
+         + ' <span class="narr-ic up">RankIC '+(x.r.mean_rank_ic!=null?signed(x.r.mean_rank_ic,4):'—')
+         + (x.r.ic_t_hac!=null?'，t='+fmt(x.r.ic_t_hac,2):'')+'</span></li>'; });
+    h += '</ul>';
+  } else {
+    h += '<div class="narr-tag flat">— 本批没有统计显著的因子</div>'
+       + '<p class="narr-dim">在当前样本上，没有哪条规律强到能排除「靠运气」。诚实地不下结论。</p>';
+  }
+  if (notsig.length){
+    h += '<div class="narr-tag flat">— 暂时看不出规律（'+notsig.length+' 条，不显著）</div>'
+       + '<p class="narr-dim">这些因子（'+notsig.slice(0,6).map(x=>esc(ex(x.f).cn)).join('、')
+       + (notsig.length>6?' 等':'')+'）在当前样本上没有稳定信号——不显著就如实说不显著，不硬凑。</p>';
+  }
+  if (abst.length){
+    h += '<div class="narr-tag warn">⊘ 数据不够、诚实弃权（'+abst.length+' 条）</div>'
+       + '<p class="narr-dim">'+abst.map(x=>esc(ex(x.f).cn)).join('、')
+       + ' —— 这些长窗口因子需要 ≥252 天历史才能算，当前积累不足。<b>系统宁可弃权也不硬猜</b>（这正是「诚实」设计）。</p>';
+  }
+  h += '<div class="narr-tag warn" style="margin-top:12px">⚠️ 必须说清的三件事</div><ul class="narr-list">'
+     + '<li><b>样本规模决定可信度</b>：评估池越小，「显著」越可能是巧合。要全 300 只截面复核后，结论才真正算数。</li>'
+     + '<li><b>因子级≠个股级</b>：一条规律整体有效，不等于某只票一定涨；须经三闸映射（家族过闸＋极端分位＋控风格后仍极端）。</li>'
+     + '<li><b>研究型、不可实盘</b>：A股做空腿不可实现，只用多头超额作判据；这些是研究信号，<b>不构成投资建议</b>。</li></ul>';
+  h += '<div class="narr-foot">怎么读这三个词 —— '
+     + '<b>RankIC</b>：因子排名和未来收益的吻合度（±0.03 可用 / ±0.05 良好，对标 Qlib 真实基准 0.04–0.05）；'
+     + '<b>显著</b>：统计上排除了「靠运气」（t 检验＋块自助双满足）；'
+     + '<b>弃权</b>：数据/历史不足，主动不下结论。</div>';
+  h += '</div>';
+  return h;
+}
+
 async function renderQuant(){
   const A = $('analysis');
-  let rows = '';
+  A.innerHTML = '<section><div class="card"><div class="loading"><i></i><i></i><i></i> 载入因子体检…</div></div></section>';
+  const items = [];
   for (const f of QUANT_FACTORS){
     let r = {};
     try { r = await getJSON('/api/factor_eval?factor_name=' + encodeURIComponent(f) + '&universe_filter=lsy'); }
     catch(e){ r = {}; }
-    const sig = r.significant === 1 ? '显著' : (r.significant === 0 ? '不显著' : '弃权');
-    const off = r.significant !== 1;
-    const verdict = r.family_verdict || r.abstain_reason || '—';
-    rows += '<div class="row"><span>' + esc(f) + '</span>'
-          + '<span>RankIC ' + (r.mean_rank_ic != null ? fmt(r.mean_rank_ic, 4) : '—') + '</span>'
-          + '<span' + (off ? ' style="color:var(--amber)"' : '') + '>' + esc(sig) + '</span>'
-          + '<span>' + esc(verdict) + '</span></div>';
+    if (isErr(r)) r = {};
+    items.push({f, r});
   }
-  let html = '<section><div class="sec-title">Quant · 因子体检 <span class="cn">多因子选股 · L2 诚实评估</span></div><div class="card">';
-  html += '<div class="bymem"><div class="ev-title">价量因子 IC 体检（中证池 · 剔小票 lsy 口径）</div>'
-        + '<div class="row" style="font-weight:600;opacity:.7"><span>因子</span><span>Rank-IC</span><span>显著性</span><span>家族判定</span></div>'
-        + rows + '</div>';
-  html += '<div class="review-note">因子级 Rank-IC ≠ 个股 alpha 保证（须经 §10.3 三闸映射）；空头腿 A 股不可实现，'
-        + '仅 long-only top 分位超额作判据；另类/估值因子受 PIT 成熟度门约束，历史不足时弃权。'
-        + 'RankIC≈0.05 已属良好（对标 Qlib CSI300/500 真实基准 0.04–0.05）。无数据=离线批未跑/PIT 不足。</div></div></section>';
+  // 明细表（按 |RankIC| 降序，显著置顶）
+  const sorted = items.slice().sort((a,b) => {
+    const sa=a.r.significant===1?2:(a.r.significant===0?1:0), sb=b.r.significant===1?2:(b.r.significant===0?1:0);
+    if (sa!==sb) return sb-sa;
+    return Math.abs(b.r.mean_rank_ic||0) - Math.abs(a.r.mean_rank_ic||0);
+  });
+  let rows = '';
+  for (const {f, r} of sorted){
+    const e = FACTOR_EXPLAIN[f] || {cn:f, fam:''};
+    const sig = r.significant === 1 ? '✓显著' : (r.significant === 0 ? '不显著' : '弃权');
+    const cls = r.significant === 1 ? 'up' : (r.significant === 0 ? 'flat' : '');
+    rows += '<div class="row"><span>'+esc(e.cn)+' <small style="color:var(--ink-faint)">'+esc(f)+'</small></span>'
+          + '<span>'+(r.mean_rank_ic != null ? signed(r.mean_rank_ic, 4) : '—')+'</span>'
+          + '<span>'+(r.ic_t_hac != null ? fmt(r.ic_t_hac, 2) : '—')+'</span>'
+          + '<span class="'+cls+'"'+(cls!=='up'?' style="color:var(--amber)"':'')+'>'+esc(sig)+'</span></div>';
+  }
+  let html = '<section><div class="sec-title">Quant · 因子体检 <span class="cn">多因子选股 · L2 诚实评估</span></div>';
+  // ① 大白话解读
+  html += '<div class="card">' + buildQuantNarrative(items) + '</div>';
+  // ② 评估池披露（回答"是不是全 A 股"）
+  html += '<div class="card" style="margin-top:16px"><div class="ev-title">评估范围说明</div>'
+        + '<div class="review-note"><b>这里展示的不是全部 A 股。</b> 因子体检评估池 = <b>中证300</b>'
+        + '（A股最具代表性的 300 只蓝筹，约占 A股总市值 60%、但只占只数 ~6%）；盯盘墙 = <b>精选 38 只</b>跨 9 行业代表 + 6 指数；'
+        + '个股研判则可输入<b>任意</b> A股代码。按设计走中证800/300 可投域（不做全市场 ~5000 只：日频全市场回测会引入幸存者/未来函数偏差且不可行）。</div></div>';
+  // ③ 明细表
+  html += '<div class="card" style="margin-top:16px"><div class="ev-title">因子 IC 体检明细（中证300 · 剔小票 lsy 口径 · 按显著性/强度排序）</div>'
+        + '<div class="bymem"><div class="row" style="font-weight:600;opacity:.7"><span>因子</span><span>Rank-IC</span><span>t(HAC)</span><span>判定</span></div>'
+        + rows + '</div></div>';
+  html += '</section>';
   A.innerHTML = html;
   if ($('footDisc')) $('footDisc').textContent = '仅供学习研究，不构成投资建议。研究型，不可实盘。';
 }
