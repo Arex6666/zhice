@@ -159,6 +159,43 @@ def _sina_kline_rows(data):
              "volume": float(d["volume"]), "adjust_actual": "none"} for d in data]
 
 
+_TENCENT_PERIOD = {"daily": "day", "weekly": "week", "monthly": "month", "60min": "m60"}
+
+
+def parse_tencent_hk_kline(payload, code, period="daily"):
+    """腾讯(ifzq.gtimg.cn) 港股 K 线 -> 标准 OHLCV。东财港股源被限流时的主源。
+
+    实测行布局: [日期, 开, **收**, 高, 低, 量, {除权信息}, 换手, 成交额, ...]
+    （注意字段序与东财不同：第 2 列是 *收盘* 不是成交量）。复权键名随口径变化：
+    股票前复权→'qfqday'/'qfqweek'…；指数(不复权)→'day'。据命中键如实标 adjust_actual。
+    无数据/异常 → 返回 [] 让图表优雅降级，绝不抛错。
+    """
+    sym = code if str(code).startswith("hk") else "hk" + str(code)
+    node = (payload.get("data") or {}).get(sym) or {}
+    p = _TENCENT_PERIOD.get(period, "day")
+    rows, key_used = None, None
+    for k in ("qfq" + p, p):                       # 先试前复权键, 再试不复权键
+        v = node.get(k)
+        if isinstance(v, list) and v:
+            rows, key_used = v, k
+            break
+    if rows is None:                               # 兜底：取节点里第一个二维数组(键名异变时)
+        for k, v in node.items():
+            if isinstance(v, list) and v and isinstance(v[0], list):
+                rows, key_used = v, k
+                break
+    adj = "qfq" if (key_used or "").startswith("qfq") else "none"
+    out = []
+    for r in (rows or []):
+        try:
+            out.append({"ts": r[0], "open": float(r[1]), "close": float(r[2]),
+                        "high": float(r[3]), "low": float(r[4]), "volume": float(r[5]),
+                        "adjust_actual": adj})
+        except (IndexError, ValueError, TypeError):
+            continue
+    return out
+
+
 def _ashare_sina_code(code):
     return ("sh" if code[0] == "6" else "sz") + code
 
@@ -370,19 +407,39 @@ class HkAdapter(MarketAdapter):
         return {c: parsed[sc] for c, sc in zip(codes, sina_codes) if sc in parsed}
 
     async def get_kline(self, code, period="daily", count=120, adjust="qfq"):
-        # 港股 K线走东财 push2his（secid 市场前缀 116.）；失败优雅返空(图表降级, 不崩)
+        # 主源：腾讯 ifzq.gtimg.cn（东财港股 push2his 在本机被限流返空 → 降级为备源）。
+        # 双源容错；两源皆失败时优雅返空(图表显示暂无, 绝不崩/绝不编造)。
+        try:
+            kl = await self._kline_tencent(code, period, count, adjust)
+            if kl:
+                return kl
+        except (httpx.HTTPError, ValueError, KeyError, IndexError):
+            pass
+        try:
+            return await self._kline_eastmoney(code, period, count, adjust)
+        except (httpx.HTTPError, ValueError, KeyError, IndexError):
+            return []
+
+    async def _kline_tencent(self, code, period, count, adjust):
+        sym = _hk_sina_code(code)                       # hk00700 / hkHSI
+        p = _TENCENT_PERIOD.get(period, "day")
+        fq = "hfq" if adjust == "hfq" else "qfq"        # 腾讯须带复权位, 否则返回空
+        param = f"{sym},{p},,,{count},{fq}"
+        async with httpx.AsyncClient(timeout=12, headers=UA) as c:
+            r = await aget(c, "https://web.ifzq.gtimg.cn/appstock/app/hkfqkline/get",
+                           params={"param": param})
+            return parse_tencent_hk_kline(r.json(), code, period)
+
+    async def _kline_eastmoney(self, code, period, count, adjust):
         secid = f"116.{code}"
         klt = {"daily": 101, "weekly": 102, "monthly": 103, "60min": 60}.get(period, 101)
         fqt = {"qfq": 1, "hfq": 2, "none": 0}.get(adjust, 1)
         params = {"secid": secid, "klt": klt, "fqt": fqt, "lmt": count, "end": "20500101",
                   "fields1": "f1,f2,f3,f4,f5,f6",
                   "fields2": "f51,f52,f53,f54,f55,f56,f57,f58"}
-        try:
-            async with httpx.AsyncClient(timeout=12, headers=UA) as c:
-                r = await aget(c, "https://push2his.eastmoney.com/api/qt/stock/kline/get", params=params)
-                return _em_kline_rows((r.json().get("data") or {}).get("klines") or [], adjust)
-        except (httpx.HTTPError, ValueError, KeyError, IndexError):
-            return []   # 港股无二级 K线源 → 优雅降级(图表显示暂无)
+        async with httpx.AsyncClient(timeout=12, headers=UA) as c:
+            r = await aget(c, "https://push2his.eastmoney.com/api/qt/stock/kline/get", params=params)
+            return _em_kline_rows((r.json().get("data") or {}).get("klines") or [], adjust)
 
     async def get_news(self, code, limit=8):
         return []   # 港股新闻源不稳，MVP 返回空（仪表盘提示），绝不编造

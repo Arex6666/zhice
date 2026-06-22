@@ -48,13 +48,16 @@ const SECTORS = [
   {name:'港股', market:'HK', syms:[['00700','腾讯控股'],['09988','阿里巴巴-W'],['03690','美团-W'],
     ['01810','小米集团-W'],['01211','比亚迪股份'],['00388','香港交易所'],['01299','友邦保险'],['01024','快手-W']]},
 ];
+// 指数支持第三位市场标记(默认 A股)；恒生指数走 HK:HSI(新浪 hkHSI, 与港股个股同布局)
 const INDICES = [['sh000001','上证指数'],['sz399001','深证成指'],['sz399006','创业板指'],
-                 ['sh000300','沪深300'],['sh000905','中证500'],['sh000688','科创50']];
+                 ['sh000300','沪深300'],['sh000905','中证500'],['sh000688','科创50'],
+                 ['HSI','恒生指数','HK']];
 
 function secMarket(s){ return s.market || 'ASHARE'; }   // 板块所属市场(默认A股, 港股板块为 HK)
+function idxMarket(x){ return x[2] || 'ASHARE'; }       // 指数所属市场(默认A股, 恒指为 HK)
 
 function allBoardSymbols(){
-  const out = INDICES.map(x => 'ASHARE:'+x[0]);
+  const out = INDICES.map(x => idxMarket(x)+':'+x[0]);
   SECTORS.forEach(s => s.syms.forEach(t => out.push(secMarket(s)+':'+t[0])));
   return out;
 }
@@ -152,8 +155,9 @@ async function loadBoard(){
 
 function renderPulse(map){
   const row = $('idxRow');
-  row.innerHTML = INDICES.map(([code,nm]) => {
-    const q = map['ASHARE:'+code] || {};
+  row.innerHTML = INDICES.map(x => {
+    const code = x[0], nm = x[1];
+    const q = map[idxMarket(x)+':'+code] || {};
     const chg = q.change_pct;
     const d = dirOf(chg);
     return '<div class="idx-chip"><span class="nm">'+esc(nm)+'</span>'
@@ -773,7 +777,7 @@ async function renderQuant(){
   // ② 评估池披露（回答"是不是全 A 股"）
   html += '<div class="card" style="margin-top:16px"><div class="ev-title">评估范围说明</div>'
         + '<div class="review-note"><b>这里展示的不是全部 A 股。</b> 因子体检评估池 = <b>中证300</b>'
-        + '（A股最具代表性的 300 只蓝筹，约占 A股总市值 60%、但只占只数 ~6%）；盯盘墙 = <b>A股 38 + 港股 8</b> 精选代表 + 6 指数；'
+        + '（A股最具代表性的 300 只蓝筹，约占 A股总市值 60%、但只占只数 ~6%）；盯盘墙 = <b>A股 38 + 港股 8</b> 精选代表 + 7 指数（含恒指）；'
         + '个股研判则可输入<b>任意</b> A股/港股代码（如 HK:00700）。按设计走中证800/300 可投域（不做全市场 ~5000 只：日频全市场回测会引入幸存者/未来函数偏差且不可行）。</div></div>';
   // ③ 明细表
   html += '<div class="card" style="margin-top:16px"><div class="ev-title">因子 IC 体检明细（中证300 · 剔小票 lsy 口径 · 按显著性/强度排序）</div>'
