@@ -71,6 +71,7 @@ function allBoardSymbols(){
 
 /* ---------------- state ---------------- */
 let MODE = 'quick';
+let TF = 'daily';           // 行情时间框：intraday(分时)/daily/weekly/monthly
 let chartMain = null, chartOsc = null, btChart = null;
 const hasECharts = (typeof echarts !== 'undefined');
 let boardTimer = null, clockTimer = null;
@@ -344,13 +345,23 @@ function rsiSeries(closes, n){
   }
   return out;
 }
+let chartGen = 0;   // 渲染代号：异步取数返回后只允许"最新一次"绘制，防竞态覆盖(切时间框/换股)
 async function loadCharts(sym){
   if (!hasECharts){ $('chartNote').innerHTML = '<span style="color:var(--danger)">ECharts 未加载 — 图表降级。</span>'; return; }
   if (!chartMain) chartMain = echarts.init($('chart-main'), null, { renderer:'canvas' });
   if (!chartOsc)  chartOsc  = echarts.init($('chart-osc'),  null, { renderer:'canvas' });
+  const gen = ++chartGen;
+  if (TF === 'intraday') return renderIntraday(sym, gen);   // 分时(盘中走势)
+  return renderKline(sym, TF, gen);                          // daily/weekly/monthly K线
+}
+
+async function renderKline(sym, period, gen){
+  $('chart-osc').style.display = '';                    // K线模式恢复 MACD/RSI 副图
   chartMain.showLoading({ text:'载入 K 线…', textColor:'#9fb2a6', maskColor:'rgba(8,11,10,.6)', color:'#3fcf8e' });
   chartOsc.clear();
-  const kl = await getJSON('/api/finance/kline?symbol=' + encodeURIComponent(sym) + '&count=120');
+  const periodName = {daily:'日', weekly:'周', monthly:'月'}[period] || '日';
+  const kl = await getJSON('/api/finance/kline?symbol=' + encodeURIComponent(sym) + '&period=' + period + '&count=120');
+  if (gen !== chartGen) return;                          // 已被更新请求取代 → 丢弃本次绘制
   chartMain.hideLoading();
   if (isErr(kl) || !Array.isArray(kl) || !kl.length){
     chartMain.clear();
@@ -420,8 +431,85 @@ async function loadCharts(sym){
     ]
   }, true);
   $('chartNote').innerHTML = 'MA5（黄）/ MA20（蓝）叠加 · 量能（涨红跌绿）· 副图 MACD 柱 + DIF/DEA + RSI14。'
-    + ' 共 ' + kl.length + ' 根 K 线 · 指标据收盘价本地滚动计算。';
+    + ' 共 ' + kl.length + ' 根 ' + periodName + 'K 线 · 指标据收盘价本地滚动计算。';
 }
+
+/* ---- 分时（盘中当日走势：价/均价线 + 昨收基准 + 量能） ---- */
+async function renderIntraday(sym, gen){
+  $('chart-osc').style.display = 'none';                // 分时模式隐藏 MACD/RSI 副图(1分钟级噪声大)
+  chartMain.showLoading({ text:'载入分时…', textColor:'#9fb2a6', maskColor:'rgba(8,11,10,.6)', color:'#3fcf8e' });
+  const d = await getJSON('/api/finance/intraday?symbol=' + encodeURIComponent(sym));
+  if (gen !== chartGen) return;                          // 已被更新请求取代 → 丢弃本次绘制
+  chartMain.hideLoading();
+  const pts = (d && Array.isArray(d.points)) ? d.points : [];
+  if (isErr(d) || !pts.length){
+    chartMain.clear();
+    const msg = isErr(d) ? ('分时不可用：'+errMsg(d))
+      : (d && d.market && d.market!=='ASHARE' && d.market!=='HK')
+        ? '分时暂仅支持 A股 / 港股（该市场未接分时源）'
+        : '暂无当日分时（非交易时段或源不可达）— 可切「日K」看历史';
+    chartMain.setOption(emptyChartOption(msg));
+    return;
+  }
+  const pc = (d.prev_close!=null) ? d.prev_close : null;
+  const times = pts.map(p => p.t);
+  const price = pts.map(p => p.price);
+  const avg   = pts.map(p => p.avg);
+  // 量能按"较上一分钟价格涨跌"红绿着色（tick 方向）
+  const vols  = pts.map((p,i) => ({ value: p.volume==null?0:p.volume,
+      itemStyle:{ color: (i>0 && p.price < pts[i-1].price) ? 'rgba(22,199,132,.5)' : 'rgba(255,77,82,.55)' } }));
+  const axisLine = { lineStyle:{ color:'#243029' } };
+  const splitLine = { lineStyle:{ color:'rgba(36,48,41,.5)' } };
+  const txt = { color:'#687a70', fontFamily:'Consolas, monospace', fontSize:10 };
+  // 价格线据"在昨收上方=红 / 下方=绿"着色（A股分时惯例）
+  const priceSeries = { name:'价格', type:'line', data:price, xAxisIndex:0, yAxisIndex:0,
+      symbol:'none', smooth:false, lineStyle:{ width:1.6 }, z:3 };
+  // 昨收基准：用一条常量虚线序列实现（比 markLine 稳，绝不抛 coord 错）
+  const baseSeries = (pc!=null) ? [{ name:'昨收', type:'line', data:times.map(()=>pc),
+      xAxisIndex:0, yAxisIndex:0, symbol:'none', silent:true, z:1,
+      lineStyle:{ width:1, type:'dashed', color:'#7c8b81' } }] : [];
+  const legendData = ['价格', '均价'].concat(pc!=null ? ['昨收'] : []).concat(['成交量']);
+  const opt = {
+    backgroundColor:'transparent', animation:true,
+    tooltip:{ trigger:'axis', axisPointer:{ type:'cross' }, backgroundColor:'#0a100d',
+      borderColor:'#243029', textStyle:{ color:'#eef5f0', fontFamily:'Consolas, monospace', fontSize:11 } },
+    legend:{ data:legendData, textStyle:{ color:'#9fb2a6', fontSize:11 }, top:0, right:10 },
+    grid:[ { left:58, right:18, top:34, height:'58%' }, { left:58, right:18, top:'72%', height:'18%' } ],
+    axisPointer:{ link:[{ xAxisIndex:'all' }] },
+    xAxis:[
+      { type:'category', data:times, gridIndex:0, axisLine, axisLabel:txt, splitLine:{show:false}, boundaryGap:false },
+      { type:'category', data:times, gridIndex:1, axisLine, axisLabel:{show:false}, axisTick:{show:false} }
+    ],
+    yAxis:[
+      { scale:true, gridIndex:0, axisLine, axisLabel:txt, splitLine },
+      { scale:true, gridIndex:1, axisLine, axisLabel:{show:false}, splitLine:{show:false} }
+    ],
+    series:[
+      priceSeries,
+      { name:'均价', type:'line', data:avg, xAxisIndex:0, yAxisIndex:0, symbol:'none', smooth:true,
+        lineStyle:{ width:1.2, color:'#e7bd5e' }, z:2 },
+      ...baseSeries,
+      { name:'成交量', type:'bar', data:vols, xAxisIndex:1, yAxisIndex:1 }
+    ]
+  };
+  // 昨收上下红绿：该 echarts 构建的 piecewise visualMap 会抛 coord 错，
+  // 改用 continuous + 极窄过渡带(±0.1%)模拟"昨收上方红/下方绿"的硬切（稳，不抛错）。
+  if (pc!=null){
+    opt.visualMap = { type:'continuous', show:false, seriesIndex:0,
+      min: pc*0.999, max: pc*1.001, inRange:{ color:['#16c784', '#ff4d52'] } };
+  } else {
+    priceSeries.lineStyle.color = '#3fcf8e';
+    priceSeries.areaStyle = { opacity:.12, color:'#3fcf8e' };
+  }
+  chartMain.setOption(opt, true);
+  const td = d.trade_date || '';
+  const dayNote = td ? ('交易日 '+td+' · ') : '';
+  const freshNote = (d.market==='HK') ? '港股源常延迟，以「数据状态」为准。'
+                                      : '非交易时段则显示最近交易日分时。';
+  $('chartNote').innerHTML = dayNote + '分时 ' + pts.length + ' 个分钟点 · 红=昨收上方/绿=下方（基准 '
+    + (pc!=null?fmt(pc,2):'—') + '）· 黄线=均价(VWAP) · ' + freshNote;
+}
+
 function emptyChartOption(msg){
   return { backgroundColor:'transparent',
     title:{ text: msg, left:'center', top:'middle',
@@ -830,6 +918,15 @@ async function openStatus(){
 /* ---------------- wiring ---------------- */
 document.querySelectorAll('.modebtn[data-mode]').forEach(btn => {
   btn.addEventListener('click', () => { setMode(btn.dataset.mode); run(); });
+});
+// 时间框切换（分时 / 日 / 周 / 月）：仅重绘图表，不重跑研判
+document.querySelectorAll('.tfbtn[data-tf]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (TF === btn.dataset.tf) return;
+    TF = btn.dataset.tf;
+    document.querySelectorAll('.tfbtn[data-tf]').forEach(b => b.classList.toggle('active', b===btn));
+    if (!$('chartSec').style.display || $('chartSec').style.display!=='none') loadCharts(curSymbol());
+  });
 });
 $('symbol').addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
 $('statusBtn').addEventListener('click', openStatus);

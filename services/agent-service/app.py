@@ -46,6 +46,13 @@ async def finance_kline(symbol: str, period: str = "daily", count: int = 120):
     return await finance_agent.mcp_tool("get_kline", {"symbol": symbol, "period": period, "count": count})
 
 
+@app.get("/finance/intraday")
+async def finance_intraday(symbol: str):
+    """当日分时（盘中走势）：每分钟 价/均价/量 + 昨收基准。"""
+    import finance_agent
+    return await finance_agent.mcp_tool("get_intraday", {"symbol": symbol})
+
+
 @app.get("/finance/indicators")
 async def finance_indicators(symbol: str):
     import finance_agent

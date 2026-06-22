@@ -217,6 +217,14 @@ section { margin-top: 24px; }
 #chart-osc  { width: 100%; height: 180px; margin-top: 10px; }
 .chart-note { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); margin-top: 8px; }
 
+/* timeframe toggle (分时 / 日 / 周 / 月) */
+.tf-row { display: inline-flex; gap: 4px; margin-left: auto; }
+.tfbtn { font-family: var(--mono); font-size: 11px; letter-spacing: 1px; color: var(--ink-soft);
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px;
+  padding: 4px 11px; cursor: pointer; transition: all .15s; }
+.tfbtn:hover { border-color: var(--jade-deep); color: var(--jade); }
+.tfbtn.active { background: linear-gradient(135deg, var(--jade-deep), var(--jade)); color: #06140d; border-color: transparent; box-shadow: 0 3px 12px var(--jade-glow); }
+
 /* committee grid */
 .grid { display: grid; gap: 16px; }
 .grid.mem { grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }

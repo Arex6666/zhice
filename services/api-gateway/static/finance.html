@@ -73,11 +73,18 @@
     <div class="quotebar" id="quotebar" style="display:none"></div>
 
     <section id="chartSec">
-      <div class="sec-title">Market · K线 / 量能 <span class="cn">行情图谱</span></div>
+      <div class="sec-title">Market · 行情图谱 <span class="cn">分时 / K线 / 量能</span>
+        <div class="tf-row" id="tfRow">
+          <button class="tfbtn" data-tf="intraday">分时</button>
+          <button class="tfbtn active" data-tf="daily">日K</button>
+          <button class="tfbtn" data-tf="weekly">周K</button>
+          <button class="tfbtn" data-tf="monthly">月K</button>
+        </div>
+      </div>
       <div class="card">
         <div id="chart-main"></div>
         <div id="chart-osc"></div>
-        <div class="chart-note" id="chartNote">MA5 / MA20 叠加 · 量能 · MACD / RSI 副图（指标据 K 线本地滚动计算）</div>
+        <div class="chart-note" id="chartNote">分时（盘中走势）/ 日·周·月 K 线可切 · MA / 量能 / MACD·RSI 据 K 线本地滚动计算</div>
       </div>
     </section>
 

@@ -224,6 +224,25 @@ async def get_kline(symbol: str, period: str = "daily", count: int = 120, adjust
 
 
 @mcp.tool()
+async def get_intraday(symbol: str) -> dict:
+    """[realtime] 当日分时（盘中走势）：每分钟 价/均价(VWAP)/量 + 昨收基准。
+
+    A股走东财 trends2、港股走腾讯 minute；不支持的市场(US/Crypto)返回 points=[](前端提示暂无)。
+    返回 {symbol, market, name, prev_close, trade_date, points:[{t,price,avg,volume}]}。
+    """
+    key = f"intra|{symbol}"
+    cached = _KLINE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    market, code = finance.split_symbol(symbol)
+    data = await finance.get_adapter(market).get_intraday(code)
+    data["symbol"], data["market"] = symbol, market
+    if data.get("points"):
+        _KLINE_CACHE.set(key, data, 30)   # 分时变动快, 短 TTL 30s
+    return data
+
+
+@mcp.tool()
 async def get_indicators(symbol: str, period: str = "daily") -> dict:
     """计算技术指标 MA/MACD/RSI/BOLL/量能（基于 K 线）。"""
     kl = await _fetch_kline(symbol, period, 120, "qfq")

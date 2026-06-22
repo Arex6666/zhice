@@ -196,6 +196,69 @@ def parse_tencent_hk_kline(payload, code, period="daily"):
     return out
 
 
+def parse_em_trends(payload):
+    """东财 trends2 -> 分时点。每行 '日期 时间,开,收(现价),高,低,量,额,均价'。
+
+    返回 {name, prev_close, trade_date, points:[{t='HH:MM', price, avg, volume}]}。
+    空/异常 -> points=[] 且 prev_close=None（图表优雅降级，绝不编造）。
+    """
+    dt = (payload or {}).get("data") or {}
+    pre = dt.get("prePrice")
+    if pre is None:
+        pre = dt.get("preClose")
+    points, trade_date = [], None
+    for line in dt.get("trends") or []:
+        f = str(line).split(",")
+        if len(f) < 8:
+            continue
+        stamp = f[0].split(" ")
+        if trade_date is None and len(stamp) == 2:
+            trade_date = stamp[0]
+        try:
+            points.append({"t": stamp[-1][:5], "price": float(f[2]),
+                           "avg": float(f[7]), "volume": float(f[5])})
+        except (ValueError, IndexError):
+            continue
+    return {"name": dt.get("name", ""), "prev_close": (float(pre) if pre is not None else None),
+            "trade_date": trade_date, "points": points}
+
+
+def parse_tencent_minute(payload, code):
+    """腾讯 minute/query -> 分时点。qt[4]=昨收；data.data 每行 'HHMM 价 累计量 累计额'。
+
+    均价取 VWAP=累计额/累计量；每分钟量取累计差。统一产出契约同 parse_em_trends。
+    """
+    sym = code if str(code).startswith("hk") else "hk" + str(code)
+    node = ((payload or {}).get("data") or {}).get(sym) or {}
+    qt = (node.get("qt") or {}).get(sym) or []
+    prev_close = None
+    name = ""
+    if len(qt) > 4:
+        try:
+            prev_close = float(qt[4])
+        except (ValueError, TypeError):
+            prev_close = None
+        name = qt[1] if len(qt) > 1 else ""
+    m = node.get("data") or {}
+    raw_date = str(m.get("date") or "")
+    trade_date = (f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}" if len(raw_date) == 8 else None)
+    points, prev_cum = [], 0.0
+    for line in m.get("data") or []:
+        g = str(line).split()
+        if len(g) < 4:
+            continue
+        try:
+            hhmm, price, cum_vol, cum_amt = g[0], float(g[1]), float(g[2]), float(g[3])
+        except (ValueError, IndexError):
+            continue
+        vol = cum_vol - prev_cum            # 累计量 → 每分钟量
+        prev_cum = cum_vol
+        avg = (cum_amt / cum_vol) if cum_vol else price   # VWAP 均价线
+        t = f"{hhmm[:2]}:{hhmm[2:4]}" if len(hhmm) >= 4 else hhmm
+        points.append({"t": t, "price": price, "avg": round(avg, 3), "volume": vol})
+    return {"name": name, "prev_close": prev_close, "trade_date": trade_date, "points": points}
+
+
 def _ashare_sina_code(code):
     return ("sh" if code[0] == "6" else "sz") + code
 
@@ -215,6 +278,10 @@ class MarketAdapter:
 
     async def get_news(self, code, limit=8):
         raise NotImplementedError
+
+    async def get_intraday(self, code):
+        # 默认：不支持分时的市场(US/Crypto)优雅返空, 前端提示"暂无分时", 绝不编造
+        return {"name": "", "prev_close": None, "trade_date": None, "points": []}
 
 
 class AshareAdapter(MarketAdapter):
@@ -268,6 +335,22 @@ class AshareAdapter(MarketAdapter):
             r = await aget(c, url)
             data = r.json()
         return _sina_kline_rows(data)
+
+    async def get_intraday(self, code):
+        # A股分时走东财 trends2（每分钟 价/均价/量 + prePrice 昨收）；失败优雅返空
+        if code[:2] in ("sh", "sz"):
+            secid = ("1." if code[:2] == "sh" else "0.") + code[2:]   # 指数(sh000001…)
+        else:
+            secid = f"{'1' if code[0] == '6' else '0'}.{code}"
+        params = {"secid": secid, "iscr": 0, "ndays": 1,
+                  "fields1": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13",
+                  "fields2": "f51,f52,f53,f54,f55,f56,f57,f58"}
+        try:
+            async with httpx.AsyncClient(timeout=12, headers=UA) as c:
+                r = await aget(c, "https://push2his.eastmoney.com/api/qt/stock/trends2/get", params=params)
+                return parse_em_trends(r.json())
+        except (httpx.HTTPError, ValueError, KeyError, IndexError):
+            return {"name": "", "prev_close": None, "trade_date": None, "points": []}
 
     async def get_news(self, code, limit=8):
         # 新闻非关键路径：akshare 失败时优雅返回空（委员会会据此弃权情绪票）
@@ -440,6 +523,17 @@ class HkAdapter(MarketAdapter):
         async with httpx.AsyncClient(timeout=12, headers=UA) as c:
             r = await aget(c, "https://push2his.eastmoney.com/api/qt/stock/kline/get", params=params)
             return _em_kline_rows((r.json().get("data") or {}).get("klines") or [], adjust)
+
+    async def get_intraday(self, code):
+        # 港股分时走腾讯 minute（qt[4]昨收 + 每分钟 价/VWAP均价/量）；失败优雅返空
+        sym = _hk_sina_code(code)
+        try:
+            async with httpx.AsyncClient(timeout=12, headers=UA) as c:
+                r = await aget(c, "https://web.ifzq.gtimg.cn/appstock/app/minute/query",
+                               params={"code": sym})
+                return parse_tencent_minute(r.json(), code)
+        except (httpx.HTTPError, ValueError, KeyError, IndexError):
+            return {"name": "", "prev_close": None, "trade_date": None, "points": []}
 
     async def get_news(self, code, limit=8):
         return []   # 港股新闻源不稳，MVP 返回空（仪表盘提示），绝不编造
