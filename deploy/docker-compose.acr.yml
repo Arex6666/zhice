@@ -1,0 +1,125 @@
+# 智策 ZhiCe —— 从阿里云 ACR 直接拉取运行（免构建、免源码）
+#
+# 用法（任何装了 Docker 的机器）：
+#   1) 可选：export LLM_API_KEY=sk-xxx   # 你的 DeepSeek 密钥；不填则委员会研判降级，其余功能照常
+#   2) docker compose -f docker-compose.acr.yml pull
+#   3) docker compose -f docker-compose.acr.yml up -d
+#   4) 浏览器打开 http://localhost:8080/finance
+#
+# 镜像来自公开仓库，拉取无需登录：
+#   crpi-zjwfywe3f3bt7ie4.cn-hangzhou.personal.cr.aliyuncs.com/arex_666/zhice_agent:<服务名>
+name: zhice
+
+x-health: &py-health
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 5s
+
+x-acr: &acr crpi-zjwfywe3f3bt7ie4.cn-hangzhou.personal.cr.aliyuncs.com/arex_666/zhice_agent
+
+services:
+  storage-service:
+    image: crpi-zjwfywe3f3bt7ie4.cn-hangzhou.personal.cr.aliyuncs.com/arex_666/zhice_agent:storage-service
+    environment:
+      DB_PATH: /data/zhice.db
+    volumes:
+      - zhice-data:/data
+    networks: [zhice-net]
+    restart: unless-stopped
+    healthcheck:
+      <<: *py-health
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8003/health')"]
+
+  mcp-tool-service:
+    image: crpi-zjwfywe3f3bt7ie4.cn-hangzhou.personal.cr.aliyuncs.com/arex_666/zhice_agent:mcp-tool-service
+    environment:
+      MCP_TRANSPORT: sse
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8002"
+      STORAGE_URL: http://storage-service:8003
+    ports:
+      - "8002:8002"
+    depends_on:
+      storage-service:
+        condition: service_healthy
+    networks: [zhice-net]
+    restart: unless-stopped
+    healthcheck:
+      <<: *py-health
+      test: ["CMD", "python", "-c", "import socket;socket.create_connection(('localhost',8002),3).close()"]
+
+  agent-service:
+    image: crpi-zjwfywe3f3bt7ie4.cn-hangzhou.personal.cr.aliyuncs.com/arex_666/zhice_agent:agent-service
+    environment:
+      MCP_SSE_URL: http://mcp-tool-service:8002/sse
+      XSEC_MODEL_DIR: /models
+      # DeepSeek：从 shell 环境或 deploy/.env 读取；不填则委员会 LLM 研判降级弃权，其余功能照常
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+    volumes:
+      - zhice-models:/models
+    depends_on:
+      mcp-tool-service:
+        condition: service_healthy
+    networks: [zhice-net]
+    restart: unless-stopped
+    healthcheck:
+      <<: *py-health
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8001/health')"]
+
+  ingestion-service:
+    image: crpi-zjwfywe3f3bt7ie4.cn-hangzhou.personal.cr.aliyuncs.com/arex_666/zhice_agent:ingestion-service
+    environment:
+      STORAGE_URL: http://storage-service:8003
+    ports:
+      - "8004:8004"
+    depends_on:
+      storage-service:
+        condition: service_healthy
+    networks: [zhice-net]
+    restart: unless-stopped
+    healthcheck:
+      <<: *py-health
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8004/health')"]
+
+  api-gateway:
+    image: crpi-zjwfywe3f3bt7ie4.cn-hangzhou.personal.cr.aliyuncs.com/arex_666/zhice_agent:api-gateway
+    environment:
+      AGENT_URL: http://agent-service:8001
+      STORAGE_URL: http://storage-service:8003
+      INGESTION_URL: http://ingestion-service:8004
+    ports:
+      - "8080:8080"
+    depends_on:
+      agent-service:
+        condition: service_healthy
+    networks: [zhice-net]
+    restart: unless-stopped
+    healthcheck:
+      <<: *py-health
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8080/health')"]
+
+  offline-runner:
+    image: crpi-zjwfywe3f3bt7ie4.cn-hangzhou.personal.cr.aliyuncs.com/arex_666/zhice_agent:offline-runner
+    environment:
+      STORAGE_URL: http://storage-service:8003
+      XSEC_MODEL_DIR: /models
+      RUN_ON_START: "0"
+      FACTOR_EVAL_SEC: "604800"
+      XSEC_TRAIN_SEC: "2592000"
+    volumes:
+      - zhice-models:/models
+    depends_on:
+      storage-service:
+        condition: service_healthy
+    networks: [zhice-net]
+    restart: unless-stopped
+
+networks:
+  zhice-net: {}
+
+volumes:
+  zhice-data: {}
+  zhice-models: {}

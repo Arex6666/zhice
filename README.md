@@ -64,6 +64,24 @@ docker compose ps             # 5 个 healthy + offline-runner Up
 
 前端速览：盯盘墙点个股进研判；研判页顶部切 **分时 / 日 / 周 / 月 K**、切 **因子体检**；盯盘墙右上角 **🤖 AI 量化模拟交易** 看持续调仓回放。
 
+### 从阿里云 ACR 直接拉取运行（免构建、免源码）
+
+镜像已推送到**公开**镜像仓库，拉取无需登录，任何装了 Docker 的机器都能一键起全栈：
+
+```bash
+cd deploy
+# 可选：填入 DeepSeek 密钥（不填则委员会 LLM 研判降级弃权，盯盘墙/因子/K线/AI模拟等照常可用）
+export LLM_API_KEY=sk-xxxx
+
+docker compose -f docker-compose.acr.yml pull
+docker compose -f docker-compose.acr.yml up -d
+# 打开 http://localhost:8080/finance
+```
+
+镜像地址（单仓库、按 tag 区分服务）：
+`crpi-zjwfywe3f3bt7ie4.cn-hangzhou.personal.cr.aliyuncs.com/arex_666/zhice_agent:<服务名>`
+（服务名 ∈ api-gateway / agent-service / mcp-tool-service / storage-service / ingestion-service / offline-runner）
+
 ---
 
 ## MCP 服务（41 个工具）
@@ -107,11 +125,17 @@ python scripts/smoke_finance.py
 
 ---
 
-## 推送阿里云（指导书第七步）
+## 推送阿里云 ACR（指导书第七步）
 
 ```bash
+# 先在真终端登录（交互输密码）
+docker login --username=<阿里云账号全名> <registry域名>
+
+# 单仓库、按 tag 区分 6 个服务（个人版只建了一个仓库时用这个）
+bash scripts/push_acr.sh [ACR仓库全路径]
+
+# 或：一服务一仓库
 bash scripts/push_aliyun.sh <registry> <namespace> [tag]
-# 例: bash scripts/push_aliyun.sh registry.cn-hangzhou.aliyuncs.com myns latest
 ```
 
 ---
