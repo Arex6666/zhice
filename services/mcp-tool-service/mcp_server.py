@@ -43,6 +43,7 @@ import multi_test as multi_test_lib
 import alpha_eval as alpha_eval_lib
 import altfactors as altfactors_lib
 import industry_map as industry_map_lib
+import paper_engine as paper_engine_lib
 
 _ASHARE_INDEX = "ASHARE:sh000001"  # 上证指数（跨资产 β 默认基准）
 
@@ -221,6 +222,50 @@ async def _fetch_kline(symbol, period="daily", count=120, adjust="qfq"):
 async def get_kline(symbol: str, period: str = "daily", count: int = 120, adjust: str = "qfq") -> list:
     """获取 K 线 OHLCV 历史。adjust ∈ {qfq 前复权, hfq 后复权, none}。"""
     return await _fetch_kline(symbol, period, count, adjust)
+
+
+_SIM_UNIVERSE = [
+    ("600519", "贵州茅台"), ("600036", "招商银行"), ("601318", "中国平安"), ("600276", "恒瑞医药"),
+    ("300750", "宁德时代"), ("688981", "中芯国际"), ("000333", "美的集团"), ("601899", "紫金矿业"),
+    ("000858", "五粮液"), ("300760", "迈瑞医疗"), ("002594", "比亚迪"), ("601012", "隆基绿能"),
+    ("002415", "海康威视"), ("600887", "伊利股份"), ("601088", "中国神华"), ("000002", "万科A"),
+]
+
+
+@mcp.tool()
+async def simulate_trading(top_k: int = 5, rebalance: int = 5, principal: float = 100000.0,
+                           lookback: int = 5, count: int = 400) -> dict:
+    """[realtime] AI 量化模拟：A股主题宇宙上"横截面反转 top-K 周频调仓"的持续纸面交易回测。
+
+    返回 净值/基准/交易流水/持仓快照/统计。信号=短期反转(超跌买入)；调仓仅用<=t数据(无未来函数)；
+    固定当代表宇宙(有幸存者偏差)；做多、无杠杆、成本10bp。研究演示，非实盘。
+    """
+    key = f"sim|{top_k}|{rebalance}|{principal}|{lookback}|{count}"
+    cached = _KLINE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    per = {}
+    for code, name in _SIM_UNIVERSE:
+        try:
+            kl = await _fetch_kline(f"ASHARE:{code}", "daily", count, "qfq")
+        except Exception:
+            kl = []
+        if kl and len(kl) >= 200:
+            per[code] = (name, {str(r["ts"]): r["close"] for r in kl})
+    if len(per) < 5:
+        return {"error": "universe_data_insufficient", "n": len(per)}
+    common = set.intersection(*[set(m.keys()) for _, m in per.values()])
+    dates = sorted(common)
+    panel = {"dates": dates, "symbols": {code: {"name": name, "closes": [m[d] for d in dates]}
+                                         for code, (name, m) in per.items()}}
+    result = paper_engine_lib.simulate(panel, {"top_k": top_k, "rebalance": rebalance,
+                                               "principal": principal, "lookback": lookback})
+    result["universe"] = [{"code": c, "name": n} for c, (n, _) in per.items()]
+    result["as_of"] = dates[-1] if dates else None
+    result["disclosure"] = ("横截面反转多因子 · top-K 等权 · 周频调仓 | 信号=短期反转(超跌买入) | "
+                            "固定当代表宇宙(有幸存者偏差) | 做多无杠杆 · 成本10bp | 无未来函数 | 研究演示,非实盘")
+    _KLINE_CACHE.set(key, result, 600)
+    return result
 
 
 @mcp.tool()

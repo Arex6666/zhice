@@ -117,7 +117,9 @@ function tickClock(){
    ============================================================ */
 function showBoard(){
   stopBoardPoll();
+  simStop();
   $('detailView').classList.add('hidden');
+  $('simView').classList.add('hidden');
   $('boardView').classList.remove('hidden');
   $('pulsebar').classList.remove('hidden');
   window.scrollTo({top:0, behavior:'instant'});
@@ -515,7 +517,157 @@ function emptyChartOption(msg){
     title:{ text: msg, left:'center', top:'middle',
       textStyle:{ color:'#687a70', fontFamily:'Consolas, monospace', fontSize:13, fontWeight:'normal' } } };
 }
-window.addEventListener('resize', () => { if (chartMain) chartMain.resize(); if (chartOsc) chartOsc.resize(); });
+window.addEventListener('resize', () => { if (chartMain) chartMain.resize(); if (chartOsc) chartOsc.resize(); if (simChart) simChart.resize(); });
+
+/* ============================================================
+   AI 量化模拟交易（simView）· 持续调仓纸面回放
+   ============================================================ */
+let SIM = null, simChart = null, simTimer = null, simIdx = 0, simTradePtr = 0, simSpeedIdx = 1;
+const SIM_SPEEDS = [{lbl:'0.5×',step:1}, {lbl:'1×',step:3}, {lbl:'2×',step:7}, {lbl:'4×',step:16}];
+const _yfix = {min:0, max:0};
+const money = v => '¥' + Math.round(v).toLocaleString('en-US');
+
+function showSim(){
+  stopBoardPoll();
+  $('boardView').classList.add('hidden');
+  $('pulsebar').classList.add('hidden');
+  $('detailView').classList.add('hidden');
+  $('simView').classList.remove('hidden');
+  window.scrollTo({top:0, behavior:'instant'});
+  if (!SIM) loadSim();
+}
+function simStop(){ if (simTimer){ clearInterval(simTimer); simTimer=null; } setPlayBtn(false); }
+
+async function loadSim(){
+  simStop();
+  const tk = $('simTopK').value, rb = $('simReb').value, cap = $('simCap').value;
+  $('simDisc').textContent = '回测计算中（取 16 只主题股真实日K → 横截面反转 top-K 周频调仓）…';
+  $('simTiles').innerHTML = ''; $('simLog').innerHTML = ''; $('simHoldings').innerHTML = '';
+  const d = await getJSON('/api/finance/sim?top_k='+tk+'&rebalance='+rb+'&principal='+cap+'&lookback=5');
+  if (isErr(d) || d.error || !Array.isArray(d.equity) || !d.equity.length){
+    $('simDisc').textContent = '模拟不可用：' + (isErr(d)?errMsg(d):(d.error||'数据不足')) + ' — 行情源可能被限流，稍后重试。';
+    return;
+  }
+  SIM = d;
+  $('simDisc').textContent = '⚠ ' + (d.disclosure || '研究演示,非实盘');
+  // 固定 Y 轴范围（播放时不跳动）
+  let lo = Infinity, hi = -Infinity;
+  d.equity.forEach((e,i) => { lo=Math.min(lo,e.equity,d.benchmark[i].value); hi=Math.max(hi,e.equity,d.benchmark[i].value); });
+  _yfix.min = Math.floor(lo*0.995); _yfix.max = Math.ceil(hi*1.005);
+  if (!simChart) simChart = echarts.init($('sim-chart'), null, {renderer:'canvas'});
+  $('simScrub').max = d.equity.length - 1;
+  simSeek(0); simPlay();   // 载入即从头播放
+}
+
+function simFrame(idx){
+  const N = SIM.equity.length; idx = Math.max(0, Math.min(idx, N-1));
+  simIdx = idx;
+  const cur = SIM.equity[idx], curDate = cur.date, pr = SIM.params.principal;
+  // 图（固定X轴，曲线随播放生长）
+  const dates = SIM.equity.map(e => e.date);
+  const stratD = SIM.equity.map((e,i) => i<=idx ? e.equity : null);
+  const benchD = SIM.benchmark.map((b,i) => i<=idx ? b.value : null);
+  const ax = {lineStyle:{color:'#243029'}}, sl = {lineStyle:{color:'rgba(36,48,41,.5)'}};
+  const txt = {color:'#687a70', fontFamily:'Consolas, monospace', fontSize:10};
+  simChart.setOption({
+    backgroundColor:'transparent', animation:false,
+    tooltip:{trigger:'axis', backgroundColor:'#0a100d', borderColor:'#243029',
+      textStyle:{color:'#eef5f0', fontFamily:'Consolas, monospace', fontSize:11}},
+    legend:{data:['策略','等权买入持有'], textStyle:{color:'#9fb2a6', fontSize:11}, top:0, right:8},
+    grid:{left:64, right:20, top:30, bottom:26},
+    xAxis:{type:'category', data:dates, axisLine:ax, axisLabel:{...txt, showMaxLabel:true},
+      boundaryGap:false, splitLine:{show:false}},
+    yAxis:{scale:true, min:_yfix.min, max:_yfix.max, axisLine:ax, splitLine:sl,
+      axisLabel:{...txt, formatter:v=>Math.round(v/1000)+'k'}},
+    series:[
+      {name:'策略', type:'line', data:stratD, symbol:'none', smooth:false,
+        lineStyle:{width:2.2, color:'#3fcf8e'}, areaStyle:{opacity:.10, color:'#3fcf8e'}, z:3},
+      {name:'等权买入持有', type:'line', data:benchD, symbol:'none',
+        lineStyle:{width:1.5, color:'#7c8b81', type:'dashed'}, z:2},
+      {name:'本金', type:'line', data:dates.map(()=>pr), symbol:'none', silent:true,
+        lineStyle:{width:1, color:'#4a5a50', type:'dotted'}, z:1}
+    ]
+  }, true);
+  // 数据块
+  const ret = cur.equity/pr - 1, bret = SIM.benchmark[idx].value/pr - 1;
+  let peak=-1e18, dd=0; for (let i=0;i<=idx;i++){ peak=Math.max(peak,SIM.equity[i].equity); dd=Math.min(dd, SIM.equity[i].equity/peak-1); }
+  const nTr = countTradesTo(curDate);
+  const tiles = [
+    ['本金', money(pr), '初始资金'],
+    ['当前权益', money(cur.equity), '现金 '+money(cur.cash)],
+    ['策略收益', signed((ret*100).toFixed(1))+'%', '', dirOf(ret)],
+    ['基准(等权买持)', signed((bret*100).toFixed(1))+'%', '超额 '+signed(((ret-bret)*100).toFixed(1))+'%', dirOf(ret-bret)],
+    ['累计交易', nTr+' 笔', '买卖持续轮动'],
+    ['最大回撤', (dd*100).toFixed(1)+'%', '峰值回落', 'down']
+  ];
+  $('simTiles').innerHTML = tiles.map(([l,v,s,d2]) =>
+    '<div class="sim-tile"><div class="l">'+esc(l)+'</div><div class="v'+(d2?' '+d2:'')+'" style="'+
+    (d2==='up'?'color:var(--up)':d2==='down'?'color:var(--down)':'')+'">'+esc(v)+'</div>'+
+    '<div class="s">'+esc(s||'')+'</div></div>').join('');
+  // 持仓（取 date<=cur 的最近快照）
+  simHoldings(curDate);
+  // 进度
+  $('simScrub').value = idx;
+  $('simDate').textContent = curDate;
+}
+
+function countTradesTo(date){ let n=0; for (const t of SIM.trades){ if (t.date<=date) n++; else break; } return n; }
+
+function simHoldings(date){
+  let snap = null;
+  for (const h of SIM.holdings){ if (h.date<=date) snap = h; else break; }
+  const box = $('simHoldings');
+  if (!snap || !snap.positions.length){ box.innerHTML = '<div class="hold-empty">空仓 / 尚未建仓</div>'; return; }
+  const maxw = Math.max(...snap.positions.map(p=>p.weight), 0.01);
+  box.innerHTML = snap.positions.map(p =>
+    '<div class="hold-row"><span class="hn" title="'+esc(p.name)+'">'+esc(p.name)+'</span>'+
+    '<span class="hold-bar"><i style="width:'+Math.round(p.weight/maxw*100)+'%"></i></span>'+
+    '<span class="hw">'+(p.weight*100).toFixed(1)+'%</span></div>').join('');
+}
+
+function logRow(t){
+  const isBuy = t.action==='buy';
+  let pnl = '';
+  if (!isBuy && t.pnl!=null) pnl = ' <span class="'+(t.pnl>=0?'pnl-up':'pnl-dn')+'">'+(t.pnl>=0?'+':'')+Math.round(t.pnl)+'</span>';
+  return '<div class="log-row"><span class="ld">'+esc(t.date.slice(5))+'</span>'+
+    '<span class="log-badge '+t.action+'">'+(isBuy?'买':'卖')+'</span>'+
+    '<span class="ln" title="'+esc(t.name)+'">'+esc(t.name)+'</span>'+
+    '<span class="lv">'+money(t.value)+pnl+'</span></div>';
+}
+function simRebuildLog(date){
+  const rows = []; simTradePtr = 0;
+  for (const t of SIM.trades){ if (t.date<=date){ rows.push(logRow(t)); simTradePtr++; } else break; }
+  $('simLog').innerHTML = rows.reverse().join('');   // 最新在上
+}
+function simAppendLog(date){
+  const box = $('simLog');
+  while (simTradePtr < SIM.trades.length && SIM.trades[simTradePtr].date <= date){
+    box.insertAdjacentHTML('afterbegin', logRow(SIM.trades[simTradePtr])); simTradePtr++;
+  }
+}
+
+function simSeek(idx){ simFrame(idx); simRebuildLog(SIM.equity[simIdx].date); }
+function setPlayBtn(playing){
+  const b = $('simPlay'); if (!b) return;
+  b.textContent = playing ? '⏸ 暂停' : '▶ 播放';
+  b.classList.toggle('playing', playing);
+}
+function simTick(){
+  const step = SIM_SPEEDS[simSpeedIdx].step;
+  const N = SIM.equity.length;
+  if (simIdx >= N-1){ simStop(); return; }
+  simFrame(Math.min(simIdx + step, N-1));
+  simAppendLog(SIM.equity[simIdx].date);
+  if (simIdx >= N-1) simStop();
+}
+function simPlay(){
+  if (!SIM) return;
+  if (simIdx >= SIM.equity.length-1) simSeek(0);   // 到底了→从头
+  simStop();
+  simTimer = setInterval(simTick, 55);
+  setPlayBtn(true);
+}
+function simPlayPause(){ if (simTimer) simStop(); else simPlay(); }
 
 /* ---- NEWS ---- */
 async function loadNews(sym){
@@ -932,6 +1084,15 @@ $('symbol').addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
 $('statusBtn').addEventListener('click', openStatus);
 $('backBtn').addEventListener('click', showBoard);
 $('brandLogo').addEventListener('click', showBoard);
+// AI 模拟交易
+$('openSimBtn').addEventListener('click', showSim);
+$('simBackBtn').addEventListener('click', showBoard);
+$('simRerun').addEventListener('click', () => { SIM=null; loadSim(); });
+$('simPlay').addEventListener('click', simPlayPause);
+$('simSpeed').addEventListener('click', () => {
+  simSpeedIdx = (simSpeedIdx+1) % SIM_SPEEDS.length; $('simSpeed').textContent = SIM_SPEEDS[simSpeedIdx].lbl;
+});
+$('simScrub').addEventListener('input', e => { if (SIM){ simStop(); simSeek(parseInt(e.target.value,10)); } });
 $('statusModal').addEventListener('click', e => { if (e.target.id === 'statusModal') e.currentTarget.classList.remove('open'); });
 // 盯盘墙：事件委托点击个股 → 进入 detail
 $('boardBody').addEventListener('click', e => {

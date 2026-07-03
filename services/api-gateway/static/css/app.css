@@ -417,3 +417,68 @@ section { margin-top: 24px; }
   .ce-grid { grid-template-columns: 1fr; }
   .breadth { border-left: none; padding-left: 0; }
 }
+
+/* ============================================================
+   AI 量化模拟交易 (simView)
+   ============================================================ */
+.simbtn { margin-left: 14px; font-family: var(--sans); font-size: 12.5px; font-weight: 600;
+  color: #06140d; background: linear-gradient(135deg, var(--jade-deep), var(--jade));
+  border: none; border-radius: 8px; padding: 6px 14px; cursor: pointer;
+  box-shadow: 0 3px 14px var(--jade-glow); transition: transform .15s, box-shadow .15s; }
+.simbtn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px var(--jade-glow); }
+
+.sim-top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+.sim-title { font-family: var(--serif); font-size: 21px; color: var(--ink); display: flex; flex-direction: column; }
+.sim-title small { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); letter-spacing: 1px; margin-top: 2px; }
+.sim-ctrls { display: flex; align-items: center; gap: 12px; margin-left: auto; flex-wrap: wrap; }
+.sim-ctrls label { font-size: 11px; color: var(--ink-soft); display: flex; align-items: center; gap: 5px; }
+.sim-ctrls select { font-family: var(--mono); font-size: 12px; color: var(--ink); background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 7px; padding: 4px 8px; }
+.rerunbtn { font-family: var(--mono); font-size: 12px; color: var(--jade); background: var(--panel-2);
+  border: 1px solid var(--jade-deep); border-radius: 8px; padding: 5px 12px; cursor: pointer; }
+.rerunbtn:hover { background: var(--jade-deep); color: #06140d; }
+.sim-disc { font-family: var(--mono); font-size: 10.5px; color: #d98b3a; background: #1a1206;
+  border: 1px solid #4a3520; border-radius: 8px; padding: 6px 12px; margin-bottom: 16px; }
+
+.sim-tiles { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 16px; }
+.sim-tile { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 13px 14px; }
+.sim-tile .l { font-size: 10.5px; color: var(--ink-soft); letter-spacing: .3px; }
+.sim-tile .v { font-family: var(--mono); font-size: 21px; font-weight: 700; margin-top: 5px; letter-spacing: -.5px; }
+.sim-tile .s { font-size: 10px; color: var(--ink-faint); margin-top: 2px; }
+
+.sim-grid { display: grid; grid-template-columns: 1.55fr 1fr; gap: 16px; align-items: start; }
+#sim-chart { width: 100%; height: 340px; }
+.sim-play { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.playbtn { font-family: var(--mono); font-size: 12.5px; color: #06140d; background: var(--jade);
+  border: none; border-radius: 8px; padding: 6px 16px; cursor: pointer; font-weight: 600; min-width: 82px; }
+.playbtn.playing { background: var(--panel-2); color: var(--jade); border: 1px solid var(--jade-deep); }
+.spd { font-family: var(--mono); font-size: 12px; color: var(--jade); cursor: pointer; user-select: none;
+  border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; min-width: 34px; text-align: center; }
+#simScrub { flex: 1; accent-color: var(--jade); cursor: pointer; }
+.sim-date { font-family: var(--mono); font-size: 12px; color: var(--ink-soft); min-width: 92px; text-align: right; }
+
+.sim-right { display: flex; flex-direction: column; gap: 16px; }
+.sim-hold, .sim-logwrap { padding: 16px; }
+.hold-row { display: grid; grid-template-columns: 88px 1fr 74px; align-items: center; gap: 8px; margin-bottom: 8px; }
+.hold-row .hn { font-size: 12.5px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hold-bar { height: 8px; background: var(--cell); border-radius: 4px; overflow: hidden; }
+.hold-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--jade-deep), var(--jade)); border-radius: 4px; }
+.hold-row .hw { font-family: var(--mono); font-size: 11.5px; color: var(--ink-soft); text-align: right; }
+.hold-empty { font-size: 12px; color: var(--ink-faint); padding: 10px 0; }
+
+.sim-log { max-height: 340px; overflow-y: auto; font-family: var(--mono); font-size: 11.5px; }
+.log-row { display: grid; grid-template-columns: 54px 40px 1fr auto; gap: 8px; align-items: center;
+  padding: 5px 4px; border-bottom: 1px solid var(--line-soft); animation: logIn .25s ease; }
+@keyframes logIn { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+.log-row .ld { color: var(--ink-faint); font-size: 10.5px; }
+.log-badge { font-size: 10px; font-weight: 700; text-align: center; border-radius: 4px; padding: 2px 0; }
+.log-badge.buy { color: var(--up); background: var(--up-soft); }
+.log-badge.sell { color: var(--down); background: var(--down-soft); }
+.log-row .ln { color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log-row .lv { color: var(--ink-soft); text-align: right; white-space: nowrap; }
+.log-row .lv .pnl-up { color: var(--up); } .log-row .lv .pnl-dn { color: var(--down); }
+
+@media (max-width: 900px){
+  .sim-grid { grid-template-columns: 1fr; }
+  .sim-tiles { grid-template-columns: repeat(3, 1fr); }
+}

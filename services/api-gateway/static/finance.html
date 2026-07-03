@@ -40,7 +40,9 @@
   <div id="boardView">
     <div class="board">
       <div class="board-head">
-        <div class="t">市场盯盘墙<small>Market Board</small></div>
+        <div class="t">市场盯盘墙<small>Market Board</small>
+          <button class="simbtn" id="openSimBtn">🤖 AI 量化模拟交易</button>
+        </div>
         <div class="hint">A股 46 + 港股 45 精选 + 7 指数（含恒指，非全市场）· 点个股进多智能体研判 · 12s 自动刷新 · 变价闪烁</div>
       </div>
       <div id="boardBody">
@@ -94,6 +96,56 @@
       <div class="sec-title">News · 新闻情绪 <span class="cn">个股资讯</span></div>
       <div class="card"><div id="newsBox" class="news-list"></div></div>
     </section>
+  </div>
+
+  <!-- ===== VIEW 3: AI 量化模拟交易 ===== -->
+  <div id="simView" class="hidden">
+    <div class="sim-top">
+      <button class="backbtn" id="simBackBtn">← 盯盘墙</button>
+      <div class="sim-title">AI 量化模拟交易<small>横截面反转 · top-K 周频调仓 · 持续纸面交易回放</small></div>
+      <div class="sim-ctrls">
+        <label>持仓数
+          <select id="simTopK"><option>3</option><option selected>5</option><option>8</option></select>
+        </label>
+        <label>调仓
+          <select id="simReb">
+            <option value="5" selected>每周</option><option value="10">每两周</option><option value="21">每月</option>
+          </select>
+        </label>
+        <label>本金
+          <select id="simCap">
+            <option value="100000" selected>10万</option><option value="1000000">100万</option><option value="10000">1万</option>
+          </select>
+        </label>
+        <button class="rerunbtn" id="simRerun">↻ 重新回测</button>
+      </div>
+    </div>
+    <div class="sim-disc" id="simDisc">加载中…</div>
+
+    <div class="sim-tiles" id="simTiles"></div>
+
+    <div class="sim-grid">
+      <div class="card sim-left">
+        <div class="sec-title" style="margin-bottom:8px">净值曲线 <span class="cn">策略 vs 等权买入持有</span></div>
+        <div id="sim-chart"></div>
+        <div class="sim-play">
+          <button class="playbtn" id="simPlay">▶ 播放</button>
+          <span class="spd" id="simSpeed" title="播放速度">1×</span>
+          <input type="range" id="simScrub" min="0" max="100" value="100" />
+          <span class="sim-date" id="simDate">—</span>
+        </div>
+      </div>
+      <div class="sim-right">
+        <div class="card sim-hold">
+          <div class="sec-title" style="margin-bottom:10px">当前持仓 <span class="cn">Holdings</span></div>
+          <div id="simHoldings"></div>
+        </div>
+        <div class="card sim-logwrap">
+          <div class="sec-title" style="margin-bottom:10px">交易流水 <span class="cn">Trade Log</span></div>
+          <div id="simLog" class="sim-log"></div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="disclaimer-foot" id="footDisc">仅供学习研究，不构成投资建议。市场有风险，决策需谨慎。</div>

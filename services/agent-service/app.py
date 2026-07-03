@@ -53,6 +53,15 @@ async def finance_intraday(symbol: str):
     return await finance_agent.mcp_tool("get_intraday", {"symbol": symbol})
 
 
+@app.get("/finance/sim")
+async def finance_sim(top_k: int = 5, rebalance: int = 5, principal: float = 100000.0,
+                      lookback: int = 5):
+    """AI 量化模拟：横截面反转 top-K 周频调仓的持续纸面交易回测。"""
+    import finance_agent
+    return await finance_agent.mcp_tool("simulate_trading", {
+        "top_k": top_k, "rebalance": rebalance, "principal": principal, "lookback": lookback})
+
+
 @app.get("/finance/indicators")
 async def finance_indicators(symbol: str):
     import finance_agent
