@@ -44,3 +44,13 @@ _antiword_err.txt
 
 # Word temp lock
 报告/~$*
+
+# 课程方提供材料 / 个人报告（本地保留，不入库、不公开）
+*.pdf
+*.doc
+报告/学号+姓名.docx
+报告/实验报告.docx
+微服务期末大作业课程要求.docx
+报告/~$*
+output/
+scratch_sim_result.json
