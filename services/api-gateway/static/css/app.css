@@ -468,8 +468,7 @@ section { margin-top: 24px; }
 
 .sim-log { max-height: 340px; overflow-y: auto; font-family: var(--mono); font-size: 11.5px; }
 .log-row { display: grid; grid-template-columns: 54px 40px 1fr auto; gap: 8px; align-items: center;
-  padding: 5px 4px; border-bottom: 1px solid var(--line-soft); animation: logIn .25s ease; }
-@keyframes logIn { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+  padding: 5px 4px; border-bottom: 1px solid var(--line-soft); }  /* 入场动效由 GSAP 接管 */
 .log-row .ld { color: var(--ink-faint); font-size: 10.5px; }
 .log-badge { font-size: 10px; font-weight: 700; text-align: center; border-radius: 4px; padding: 2px 0; }
 .log-badge.buy { color: var(--up); background: var(--up-soft); }
@@ -481,4 +480,77 @@ section { margin-top: 24px; }
 @media (max-width: 900px){
   .sim-grid { grid-template-columns: 1fr; }
   .sim-tiles { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* ============================================================
+   GSAP 升级层：氛围背景 / 开机序列 / 跑马灯 / 涨跌分布条 / 滑块指示器
+   ============================================================ */
+
+/* —— 氛围背景光晕（transform 驱动缓漂, GPU 合成） —— */
+.bg-blob { position: fixed; border-radius: 50%; filter: blur(90px); opacity: .15;
+  pointer-events: none; z-index: 0; will-change: transform; }
+.bg-blob.b1 { width: 560px; height: 560px; left: -160px; top: -140px;
+  background: radial-gradient(circle, #1f8f63, transparent 70%); }
+.bg-blob.b2 { width: 480px; height: 480px; right: -140px; bottom: -120px;
+  background: radial-gradient(circle, #6d5a26, transparent 70%); }
+.wrap { position: relative; z-index: 1; }
+
+/* —— 开机序列（GSAP 编排；CSS 兜底动画确保任何异常下 2.6s 后自动放行） —— */
+#bootOverlay { position: fixed; inset: 0; z-index: 99; display: flex; align-items: center;
+  justify-content: center; background: radial-gradient(1100px 640px at 50% 40%, #0d1512, var(--bg));
+  animation: bootGone .5s ease 2.6s forwards; }
+@keyframes bootGone { to { opacity: 0; visibility: hidden; } }
+.bwrap { text-align: center; }
+.blogo { display: flex; align-items: baseline; gap: 12px; justify-content: center; }
+.bchar { font-family: var(--serif); font-size: 64px; font-weight: 700; color: var(--ink); display: inline-block; }
+.bchar.alt { color: var(--jade); text-shadow: 0 0 36px var(--jade-glow); }
+.bchar.ben { font-family: var(--mono); font-size: 12px; letter-spacing: 6px; color: var(--ink-faint); }
+.bline { height: 2px; width: 240px; margin: 18px auto 12px; transform: scaleX(0);
+  background: linear-gradient(90deg, transparent, var(--jade), transparent); }
+.bsub { font-family: var(--mono); font-size: 11px; letter-spacing: 3px; color: var(--ink-soft); }
+
+/* —— 全局行情跑马灯 —— */
+#tapeWrap { position: relative; overflow: hidden; height: 40px; margin: 10px 0 14px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
+  display: flex; align-items: center; }
+.tape-track { display: flex; white-space: nowrap; will-change: transform; }
+.tseg { display: flex; }
+.titem { display: inline-flex; align-items: center; gap: 8px; padding: 0 15px; height: 40px;
+  font-family: var(--mono); font-size: 11.5px; color: var(--ink-soft); cursor: pointer;
+  border-right: 1px solid var(--line-soft); transition: background .15s; }
+.titem:hover { background: var(--panel-2); }
+.titem .tnm { color: var(--ink); font-weight: 600; font-family: var(--sans); font-size: 12px; }
+.titem i { font-style: normal; }
+.titem .tch.up { color: var(--up); } .titem .tch.down { color: var(--down); } .titem .tch.flat { color: var(--ink-faint); }
+.tape-fade { position: absolute; top: 0; bottom: 0; width: 46px; z-index: 2; pointer-events: none; }
+.tape-fade.l { left: 0; background: linear-gradient(90deg, var(--bg), transparent); }
+.tape-fade.r { right: 0; background: linear-gradient(-90deg, var(--bg), transparent); }
+
+/* —— 涨跌分布条（脉搏条右侧, 宽度随广度数据推进） —— */
+.bbar { flex: 1; min-width: 130px; height: 10px; display: flex; border-radius: 6px;
+  overflow: hidden; background: var(--cell); }
+.bbar i { display: block; height: 100%; }
+.bbar .sg-up   { background: linear-gradient(90deg, #b93438, var(--up)); }
+.bbar .sg-flat { background: #37423b; }
+.bbar .sg-down { background: linear-gradient(90deg, var(--down), #0d7f56); }
+.bstat { display: flex; align-items: baseline; gap: 5px; font-family: var(--mono); }
+.bstat .n { font-size: 17px; font-weight: 700; }
+.bstat .l2 { font-size: 10.5px; color: var(--ink-faint); }
+.bavg { font-family: var(--mono); font-size: 12px; color: var(--ink-soft); }
+.bavg b { font-size: 15px; }
+
+/* —— 模式/时间框 滑块光晕指示器（GSAP 驱动位移） —— */
+.modes, .tf-row { position: relative; }
+.glider { position: absolute; left: 0; top: 0; width: 0; height: 0; border-radius: 12px;
+  background: var(--jade-glow); box-shadow: 0 0 26px var(--jade-glow); opacity: 0;
+  z-index: 0; pointer-events: none; }
+.modes > .modebtn, .tf-row > .tfbtn { position: relative; z-index: 1; }
+
+/* —— 无障碍焦点环 —— */
+:focus-visible { outline: 2px solid var(--jade-deep); outline-offset: 2px; border-radius: 6px; }
+
+/* —— 减少动态偏好：跑马灯允许手动横向滚动 —— */
+@media (prefers-reduced-motion: reduce) {
+  #tapeWrap { overflow-x: auto; }
+  #bootOverlay { animation-delay: .1s; }
 }

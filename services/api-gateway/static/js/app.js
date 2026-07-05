@@ -34,6 +34,172 @@ function verdictClass(v){ return v==='偏多' ? 'v-long' : v==='偏空' ? 'v-sho
 function dirOf(chg){ return chg==null||isNaN(chg) ? 'flat' : chg>0 ? 'up' : chg<0 ? 'down' : 'flat'; }
 function arrowOf(chg){ return chg==null||isNaN(chg) ? '·' : chg>0 ? '▲' : chg<0 ? '▼' : '—'; }
 
+/* ============================================================
+   MOTION · GSAP 运动层
+   原则：transform/opacity 优先(GPU 合成)；prefers-reduced-motion 全局降级；
+   GSAP 缺失时所有助手优雅退化为直接赋值——页面功能永不依赖动效。
+   ============================================================ */
+const hasGSAP = (typeof gsap !== 'undefined');
+let MOTION_OK = true;                       // 减少动态偏好 → false（无障碍）
+/* 注意：以下状态必须先于 matchMedia 注册声明——其回调同步执行并触达这些变量（避免 TDZ） */
+let tapeTween = null, tapeBuilt = false, blobsDrifting = false;
+if (hasGSAP){
+  gsap.defaults({ ease: 'power2.out', duration: .5, overwrite: 'auto' });
+  gsap.matchMedia().add({
+    reduce: '(prefers-reduced-motion: reduce)',
+    ok:     '(prefers-reduced-motion: no-preference)'
+  }, ctx => {
+    MOTION_OK = !ctx.conditions.reduce;
+    if (!MOTION_OK) killMarquee(); else ensureMarquee();
+    driftBlobs();
+  });
+}
+
+/* 通用入场编排：容器内 section 卡片上浮渐显（每次研判渲染后调用） */
+function reveal(root, sel){
+  if (!hasGSAP || !MOTION_OK || !root) return;
+  const els = root.querySelectorAll(sel || 'section');
+  if (!els.length) return;
+  gsap.from(els, { y: 16, autoAlpha: 0, duration: .45, stagger: .07,
+                   clearProps: 'transform,opacity,visibility' });
+}
+/* deep 模式追加编排：委员卡逐张入场 + 置信度条从零生长 */
+function revealDeepExtras(root){
+  if (!hasGSAP || !MOTION_OK || !root) return;
+  const mems = root.querySelectorAll('.member');
+  if (mems.length) gsap.from(mems, { y: 14, autoAlpha: 0, duration: .4, stagger: .06,
+                                     delay: .1, clearProps: 'transform,opacity,visibility' });
+  const fills = root.querySelectorAll('.conf .fill');
+  if (fills.length) gsap.from(fills, { scaleX: 0, transformOrigin: '0 50%', duration: .7,
+                                       stagger: .05, delay: .25, clearProps: 'transform' });
+}
+/* 数字滚动：从当前显示值滚到新值（金融终端的"跳价"质感） */
+function rollNum(el, to, dec, opts){
+  if (!el) return;
+  const o = opts || {};
+  const finish = () => { el.textContent = (o.signed ? signed(to, dec) : fmt(to, dec)) + (o.suf || ''); };
+  if (to == null || isNaN(to)){ el.textContent = '—'; return; }
+  const from = parseFloat(String(el.textContent).replace(/[^\d.\-]/g, ''));
+  if (!hasGSAP || !MOTION_OK || isNaN(from) || from === Number(to)){ finish(); return; }
+  const p = { v: from };
+  gsap.to(p, { v: Number(to), duration: .55, ease: 'power1.out', overwrite: true,
+    onUpdate(){ el.textContent = (o.signed ? signed(p.v, dec) : fmt(p.v, dec)) + (o.suf || ''); },
+    onComplete: finish });
+}
+/* 变价辉光：底色瞬间染色后回落（替代旧 CSS flash 类） */
+function pulseGlow(el, dir){
+  if (!el || !hasGSAP || !MOTION_OK) return;
+  const end = getComputedStyle(el).backgroundColor;
+  const tint = dir === 'up' ? 'rgba(255,77,82,.20)' : dir === 'down' ? 'rgba(22,199,132,.20)' : 'rgba(63,207,142,.12)';
+  gsap.fromTo(el, { backgroundColor: tint },
+                  { backgroundColor: end, duration: .9, ease: 'power1.out', clearProps: 'backgroundColor' });
+}
+/* 模式/时间框按钮组的滑动光晕指示器 */
+function initGlider(group){
+  if (!group || group.querySelector(':scope > .glider')) return;
+  const g = document.createElement('span'); g.className = 'glider'; group.prepend(g);
+}
+function moveGlider(group, btn, instant){
+  if (!group || !btn || !hasGSAP) return;
+  initGlider(group);
+  const g = group.querySelector(':scope > .glider');
+  const vars = { x: btn.offsetLeft, y: btn.offsetTop, width: btn.offsetWidth,
+                 height: btn.offsetHeight, autoAlpha: 1 };
+  if (!MOTION_OK || instant) gsap.set(g, vars);
+  else gsap.to(g, { ...vars, duration: .35, ease: 'power3.out' });
+}
+/* 氛围光晕缓漂（20s+ 呼吸级节奏, 纯 transform） */
+function driftBlobs(){
+  if (!hasGSAP) return;
+  if (!MOTION_OK){ gsap.killTweensOf('.bg-blob'); blobsDrifting = false; return; }
+  if (blobsDrifting) return;
+  blobsDrifting = true;
+  gsap.to('.bg-blob.b1', { x: 90,  y: 70,  duration: 26, yoyo: true, repeat: -1, ease: 'sine.inOut' });
+  gsap.to('.bg-blob.b2', { x: -70, y: -60, duration: 31, yoyo: true, repeat: -1, ease: 'sine.inOut' });
+}
+
+/* ---------------- 全局行情跑马灯（无缝循环 · 悬停暂停 · 点击进研判） ---------------- */
+function tapeItemHTML(sym, nm){
+  return '<span class="titem" data-sym="' + esc(sym) + '">'
+    + '<b class="tnm">' + esc(nm) + '</b><i class="tpx">—</i><i class="tch flat">·</i></span>';
+}
+function buildTape(){
+  if (tapeBuilt) return;
+  const track = $('tapeTrack'); if (!track) return;
+  tapeBuilt = true;
+  let h = '';
+  INDICES.forEach(x => { h += tapeItemHTML(idxMarket(x) + ':' + x[0], x[1]); });
+  SECTORS.forEach(s => s.syms.forEach(t => { h += tapeItemHTML(secMarket(s) + ':' + t[0], t[1]); }));
+  track.innerHTML = '<div class="tseg">' + h + '</div><div class="tseg" aria-hidden="true">' + h + '</div>';
+  track.addEventListener('click', e => {
+    const it = e.target.closest('.titem[data-sym]'); if (it) openDetail(it.dataset.sym);
+  });
+  const wrap = $('tapeWrap');
+  wrap.addEventListener('mouseenter', () => { if (tapeTween) tapeTween.pause(); });
+  wrap.addEventListener('mouseleave', () => { if (tapeTween && !document.hidden) tapeTween.play(); });
+  ensureMarquee();
+}
+function ensureMarquee(){
+  const track = $('tapeTrack');
+  if (!track || !track.firstChild || !hasGSAP || !MOTION_OK || tapeTween) return;
+  const n = track.querySelectorAll('.tseg:first-child .titem').length || 90;
+  tapeTween = gsap.to(track, { xPercent: -50, duration: n * 2.2, ease: 'none', repeat: -1 });
+}
+function killMarquee(){
+  if (tapeTween){ tapeTween.kill(); tapeTween = null; }
+  if (hasGSAP && $('tapeTrack')) gsap.set('#tapeTrack', { xPercent: 0 });
+}
+function updateTape(map){
+  buildTape();
+  const track = $('tapeTrack'); if (!track) return;
+  track.querySelectorAll('.titem').forEach(it => {
+    const q = map[it.dataset.sym];
+    if (!q || q.error || q.price == null) return;
+    const d = dirOf(q.change_pct);
+    it.querySelector('.tpx').textContent = fmt(q.price, 2);
+    const ch = it.querySelector('.tch');
+    ch.textContent = arrowOf(q.change_pct) + ' ' + (q.change_pct == null ? '—' : signed(q.change_pct) + '%');
+    ch.className = 'tch ' + d;
+  });
+}
+
+/* ---------------- 视图转场（淡出旧视图 → 换类 → 新视图上浮入场） ---------------- */
+function switchView(showIds, hideIds, after){
+  const showEls = showIds.map($).filter(Boolean);
+  const hideEls = hideIds.map($).filter(el => el && !el.classList.contains('hidden'));
+  const apply = () => {
+    hideEls.forEach(el => el.classList.add('hidden'));
+    showEls.forEach(el => el.classList.remove('hidden'));
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    if (after) after();
+  };
+  if (!hasGSAP || !MOTION_OK || !hideEls.length){ apply(); return; }
+  gsap.to(hideEls, { autoAlpha: 0, y: -8, duration: .16, ease: 'power1.in',
+    onComplete(){
+      gsap.set(hideEls, { clearProps: 'transform,opacity,visibility' });
+      apply();
+      gsap.from(showEls, { autoAlpha: 0, y: 12, duration: .32,
+                           clearProps: 'transform,opacity,visibility' });
+    } });
+}
+
+/* ---------------- 开机序列（≤1.6s；任何异常绝不挡页面） ---------------- */
+function bootIntro(){
+  const ov = $('bootOverlay');
+  if (!ov) return;
+  const done = () => { if (ov.parentNode) ov.parentNode.removeChild(ov); };
+  setTimeout(done, 3200);                      // JS 兜底（CSS 兜底另有 2.6s 动画）
+  if (!hasGSAP || !MOTION_OK){ done(); return; }
+  const tl = gsap.timeline({ onComplete: done, defaults: { ease: 'power3.out' } });
+  tl.to(ov.querySelector('.bline'), { scaleX: 1, duration: .5, ease: 'power2.inOut' }, 0)
+    .from(ov.querySelectorAll('.bchar'), { y: 26, autoAlpha: 0, stagger: .08, duration: .5 }, .05)
+    .from(ov.querySelector('.bsub'), { autoAlpha: 0, y: 8, duration: .35 }, '-=.2')
+    .to(ov, { autoAlpha: 0, duration: .4, ease: 'power1.inOut' }, '+=.3');
+  gsap.from(['header', '#tapeWrap', '#pulsebar', '#boardView .board'],
+    { y: 14, autoAlpha: 0, duration: .5, stagger: .09, delay: .6,
+      clearProps: 'transform,opacity,visibility' });
+}
+
 /* ---------------- board universe (A股分行业) ---------------- */
 const SECTORS = [
   /* ---------- A股（11 行业 · 46 只） ---------- */
@@ -116,136 +282,206 @@ function tickClock(){
    VIEW 切换
    ============================================================ */
 function showBoard(){
-  stopBoardPoll();
   simStop();
-  $('detailView').classList.add('hidden');
-  $('simView').classList.add('hidden');
-  $('boardView').classList.remove('hidden');
-  $('pulsebar').classList.remove('hidden');
-  window.scrollTo({top:0, behavior:'instant'});
-  loadBoard();
-  startBoardPoll();
+  switchView(['pulsebar','boardView'], ['detailView','simView'], () => {
+    loadBoard();
+    startBoardPoll();
+  });
 }
 function openDetail(sym){
   stopBoardPoll();
-  $('boardView').classList.add('hidden');
-  $('pulsebar').classList.add('hidden');
-  $('detailView').classList.remove('hidden');
-  $('symbol').value = sym;
-  setMode('quick');
-  window.scrollTo({top:0, behavior:'instant'});
-  run();
+  switchView(['detailView'], ['boardView','pulsebar','simView'], () => {
+    $('symbol').value = sym;
+    setMode('quick');
+    requestAnimationFrame(() => {
+      const tfa = document.querySelector('.tfbtn.active');
+      if (tfa) moveGlider(document.querySelector('.tf-row'), tfa, true);
+    });
+    run();
+  });
 }
 function setMode(m){
   MODE = m;
-  document.querySelectorAll('.modebtn[data-mode]').forEach(b =>
-    b.classList.toggle('active', b.dataset.mode===m));
+  let active = null;
+  document.querySelectorAll('.modebtn[data-mode]').forEach(b => {
+    const on = b.dataset.mode === m;
+    b.classList.toggle('active', on);
+    if (on) active = b;
+  });
+  if (active) requestAnimationFrame(() => moveGlider(document.querySelector('.modes'), active));
 }
 
 /* ============================================================
    BOARD · 批量行情 → 脉搏 + 涨跌家数 + 分行业墙
    ============================================================ */
 async function loadBoard(){
+  // 全局轮询 tick：跑马灯每次都更新；盯盘墙 DOM 仅在该视图可见时更新（原位、不重建）。
   const syms = allBoardSymbols();
   const data = await getJSON('/api/finance/board?symbols=' + encodeURIComponent(syms.join(',')));
   if (isErr(data) || !Array.isArray(data)){
-    $('boardBody').innerHTML = '<div class="notice err">盯盘墙行情不可用：'+esc(errMsg(data))
-      + ' — 行情源可能不可达或被限流。</div>';
+    if (!$('boardBody').dataset.built && !$('boardView').classList.contains('hidden')){
+      $('boardBody').innerHTML = '<div class="notice err">盯盘墙行情不可用：'+esc(errMsg(data))
+        + ' — 行情源可能不可达或被限流。</div>';
+    }
     return;
   }
   const map = {};
   data.forEach(q => { if (q && q.symbol) map[q.symbol] = q; });
-  renderPulse(map);
-  renderBreadth(map);
-  renderSectors(map);
-  lastUpdated = Date.now();
-  boardFirst = false;
-  tickClock();
+  updateTape(map);
+  if (!$('boardView').classList.contains('hidden')){
+    renderPulse(map);
+    renderBreadth(map);
+    if (!$('boardBody').dataset.built) buildSectors(map); else updateSectors(map);
+    lastUpdated = Date.now();
+    boardFirst = false;
+    tickClock();
+  }
 }
 
+/* 指数脉搏：构建一次，之后数字滚动 + 变价辉光原位更新 */
 function renderPulse(map){
   const row = $('idxRow');
-  row.innerHTML = INDICES.map(x => {
-    const code = x[0], nm = x[1];
-    const q = map[idxMarket(x)+':'+code] || {};
-    const chg = q.change_pct;
-    const d = dirOf(chg);
-    return '<div class="idx-chip"><span class="nm">'+esc(nm)+'</span>'
-      + '<span class="px '+d+'">'+fmt(q.price, 2)+'</span>'
-      + '<span class="pc '+d+'">'+arrowOf(chg)+' '+(chg==null?'—':signed(chg)+'%')+'</span></div>';
-  }).join('');
+  if (!row.dataset.built){
+    row.innerHTML = INDICES.map(x =>
+      '<div class="idx-chip" data-isym="'+esc(idxMarket(x)+':'+x[0])+'"><span class="nm">'+esc(x[1])+'</span>'
+      + '<span class="px flat">—</span><span class="pc flat">·</span></div>').join('');
+    row.dataset.built = '1';
+  }
+  INDICES.forEach(x => {
+    const sym = idxMarket(x)+':'+x[0];
+    const chip = row.querySelector('[data-isym="'+sym+'"]');
+    const q = map[sym];
+    if (!chip || !q || q.error) return;
+    const chg = q.change_pct, d = dirOf(chg);
+    const px = chip.querySelector('.px'), pc = chip.querySelector('.pc');
+    const prev = lastPrices[sym];
+    if (prev != null && q.price != null && q.price !== prev){
+      rollNum(px, q.price, 2);
+      pulseGlow(chip, q.price > prev ? 'up' : 'down');
+    } else px.textContent = fmt(q.price, 2);
+    lastPrices[sym] = q.price;
+    px.className = 'px '+d;
+    pc.className = 'pc '+d;
+    pc.textContent = arrowOf(chg)+' '+(chg==null?'—':signed(chg)+'%');
+  });
 }
 
+/* 涨跌广度：构建一次，宽度/数字随行情推进（A股+港股全量口径） */
 function renderBreadth(map){
   let up=0, down=0, flat=0, sum=0, n=0;
   SECTORS.forEach(s => s.syms.forEach(([code]) => {
-    const q = map['ASHARE:'+code]; if (!q || q.error) return;
+    const q = map[secMarket(s)+':'+code]; if (!q || q.error) return;
     const c = q.change_pct;
     if (c==null) { flat++; return; }
     if (c>0) up++; else if (c<0) down++; else flat++;
     sum += c; n++;
   }));
-  const avg = n ? sum/n : null;
-  const ad = dirOf(avg);
-  $('breadth').innerHTML =
-      '<div class="grp"><span class="n up">'+up+'</span><span class="l">涨</span></div>'
-    + '<div class="grp"><span class="n flat">'+flat+'</span><span class="l">平</span></div>'
-    + '<div class="grp"><span class="n down">'+down+'</span><span class="l">跌</span></div>'
-    + '<div class="grp"><span class="n '+ad+'">'+(avg==null?'—':signed(avg)+'%')+'</span><span class="l">均涨幅</span></div>';
+  const avg = n ? sum/n : null, ad = dirOf(avg), tot = Math.max(up+down+flat, 1);
+  const el = $('breadth');
+  if (!el.dataset.built){
+    el.innerHTML = '<div class="bstat"><span class="n up" id="brUp">0</span><span class="l2">涨</span></div>'
+      + '<div class="bbar"><i class="sg-up"></i><i class="sg-flat"></i><i class="sg-down"></i></div>'
+      + '<div class="bstat"><span class="n down" id="brDn">0</span><span class="l2">跌</span></div>'
+      + '<div class="bavg">均 <b id="brAvg" class="flat">—</b></div>';
+    el.dataset.built = '1';
+  }
+  rollNum($('brUp'), up, 0); rollNum($('brDn'), down, 0);
+  const avgEl = $('brAvg');
+  avgEl.className = ad;
+  if (avg != null) rollNum(avgEl, avg, 2, { signed: true, suf: '%' }); else avgEl.textContent = '—';
+  const w = k => (k/tot*100).toFixed(1)+'%';
+  const segs = [['.sg-up', w(up)], ['.sg-flat', w(flat)], ['.sg-down', w(down)]];
+  segs.forEach(([s, ww]) => {
+    const seg = el.querySelector(s); if (!seg) return;
+    if (hasGSAP && MOTION_OK) gsap.to(seg, { width: ww, duration: .7, ease: 'power2.inOut' });
+    else seg.style.width = ww;
+  });
 }
 
-function renderSectors(map){
+/* 盯盘墙：首屏构建一次（含入场编排），此后一律原位更新 */
+function buildSectors(map){
   let html = '';
   SECTORS.forEach(sec => {
-    let sum=0, n=0;
     const mkt = secMarket(sec);
-    const cells = sec.syms.map(([code,nm]) => {
-      const sym = mkt+':'+code, q = map[sym];
-      if (q && !q.error && q.change_pct!=null){ sum+=q.change_pct; n++; }
-      return ticker(sym, code, nm, q);
-    }).join('');
-    const avg = n ? sum/n : null, ad = dirOf(avg);
-    const avgTxt = avg==null ? '—' : signed(avg)+'%';
-    const avgColor = ad==='up' ? 'var(--up)' : ad==='down' ? 'var(--down)' : 'var(--ink-soft)';
+    const cells = sec.syms.map(([code,nm]) => ticker(mkt+':'+code, code, nm, map[mkt+':'+code])).join('');
     html += '<div class="sector"><div class="sec-head"><span class="nm">'+esc(sec.name)+'</span>'
-      + '<span class="bar"></span><span class="avg" style="color:'+avgColor+'">行业 '+avgTxt+'</span></div>'
+      + '<span class="bar"></span><span class="avg">行业 —</span></div>'
       + '<div class="tickers">'+cells+'</div></div>';
   });
-  $('boardBody').innerHTML = html;
+  const body = $('boardBody');
+  body.innerHTML = html;
+  body.dataset.built = '1';
+  updateSectors(map);
+  if (hasGSAP && MOTION_OK && boardFirst){
+    gsap.from(body.querySelectorAll('.sector'), { y: 18, autoAlpha: 0, duration: .45,
+      stagger: .05, clearProps: 'transform,opacity,visibility' });
+  }
+}
+
+function updateSectors(map){
+  let structureDirty = false;
+  document.querySelectorAll('#boardBody .ticker[data-sym]').forEach(t => {
+    const sym = t.dataset.sym, q = map[sym];
+    const dead = !q || q.error || q.price == null;
+    if (dead !== t.classList.contains('dead')){ structureDirty = true; return; }
+    if (dead){ t.dataset.chg = ''; return; }
+    const chg = q.change_pct, d = dirOf(chg);
+    t.classList.remove('up','down','flat'); t.classList.add(d);
+    t.dataset.chg = (chg==null ? '' : chg);
+    const nmEl = t.querySelector('.nm');
+    if (q.name && nmEl.textContent !== q.name) nmEl.textContent = q.name;
+    const px = t.querySelector('.tpx'), prev = lastPrices[sym];
+    if (!boardFirst && prev != null && q.price != null && q.price !== prev){
+      rollNum(px, q.price, 2);
+      pulseGlow(t, q.price > prev ? 'up' : 'down');
+    } else px.textContent = fmt(q.price, 2);
+    lastPrices[sym] = q.price;
+    t.querySelector('.tchg').textContent = arrowOf(chg)+' '+(chg==null?'—':signed(chg)+'%');
+    const st = q.data_status || 'fresh';
+    let flag = DATA_STATUS_CN[st]||st;
+    if (q.halted) flag = '停牌'; else if (q.limit_up) flag = '涨停'; else if (q.limit_down) flag = '跌停';
+    t.querySelector('.tflag').textContent = flag;
+  });
+  // 行业均涨幅（据刚写入的 data-chg 汇总）
+  document.querySelectorAll('#boardBody .sector').forEach(sec => {
+    let sum=0, n=0;
+    sec.querySelectorAll('.ticker[data-sym]').forEach(t => {
+      const c = parseFloat(t.dataset.chg); if (!isNaN(c)){ sum+=c; n++; }
+    });
+    const avg = n ? sum/n : null, ad = dirOf(avg);
+    const avgEl = sec.querySelector('.sec-head .avg'); if (!avgEl) return;
+    avgEl.textContent = '行业 ' + (avg==null ? '—' : signed(avg)+'%');
+    avgEl.style.color = ad==='up' ? 'var(--up)' : ad==='down' ? 'var(--down)' : 'var(--ink-soft)';
+  });
+  if (structureDirty){ $('boardBody').dataset.built = ''; buildSectors(map); }
 }
 
 function ticker(sym, code, nm, q){
   if (!q || q.error || q.price==null){
-    return '<div class="ticker dead"><div class="tname"><span class="nm">'+esc(nm)+'</span>'
+    return '<div class="ticker dead" data-sym="'+esc(sym)+'"><div class="tname"><span class="nm">'+esc(nm)+'</span>'
       + '<span class="cd">'+esc(code)+'</span></div><div class="tpx">—</div>'
       + '<div class="trow"><span class="tchg">无行情</span><span class="tflag">降级</span></div></div>';
   }
   const chg = q.change_pct, d = dirOf(chg);
-  // 变价闪烁（非首屏）
-  let flash = '';
-  const prev = lastPrices[sym];
-  if (!boardFirst && prev!=null && q.price!=null && q.price!==prev){
-    flash = q.price>prev ? ' fl-up' : ' fl-down';
-  }
   lastPrices[sym] = q.price;
   const st = q.data_status || 'fresh';
   let flag = DATA_STATUS_CN[st]||st;
   if (q.halted) flag = '停牌';
   else if (q.limit_up) flag = '涨停';
   else if (q.limit_down) flag = '跌停';
-  return '<div class="ticker '+d+flash+'" data-sym="'+esc(sym)+'" role="button" tabindex="0">'
+  return '<div class="ticker '+d+'" data-sym="'+esc(sym)+'" role="button" tabindex="0">'
     + '<div class="tname"><span class="nm">'+esc(q.name||nm)+'</span><span class="cd">'+esc(code)+'</span></div>'
     + '<div class="tpx">'+fmt(q.price,2)+'</div>'
     + '<div class="trow"><span class="tchg">'+arrowOf(chg)+' '+(chg==null?'—':signed(chg)+'%')+'</span>'
     + '<span class="tflag">'+esc(flag)+'</span></div></div>';
 }
 
+/* 轮询全局常开（跑马灯全视图需要行情）；LIVE 徽标只反映盯盘墙状态 */
 function startBoardPoll(){
-  stopBoardPoll();
-  boardTimer = setInterval(() => { if (!document.hidden) loadBoard(); }, 12000);
+  if (!boardTimer) boardTimer = setInterval(() => { if (!document.hidden) loadBoard(); }, 12000);
   setLive(true);
 }
-function stopBoardPoll(){ if (boardTimer){ clearInterval(boardTimer); boardTimer=null; } setLive(false); }
+function stopBoardPoll(){ setLive(false); }
 function setLive(on){
   const el = $('liveWrap'); if (!el) return;
   el.classList.toggle('paused', !on);
@@ -318,6 +554,8 @@ function renderQuoteData(q, sym){
     + '<div class="qprice '+dir+'">'+ fmt(q.price) +'</div>'
     + '<div class="qchg '+dir+'">'+arrow+' '+ (chg==null?'—':signed(chg)+'%') +'</div>'
     + '<div class="qmeta">昨收 '+fmt(q.prev_close)+' &nbsp;'+badges+'</div>';
+  if (hasGSAP && MOTION_OK) gsap.from(bar.children,
+    { y: 8, autoAlpha: 0, duration: .35, stagger: .06, clearProps: 'transform,opacity,visibility' });
 }
 
 /* ---- CHARTS ---- */
@@ -523,20 +761,20 @@ window.addEventListener('resize', () => { if (chartMain) chartMain.resize(); if 
    AI 量化模拟交易（simView）· 持续调仓纸面回放
    ============================================================ */
 let SIM = null, simChart = null, simTimer = null, simIdx = 0, simTradePtr = 0, simSpeedIdx = 1;
-const SIM_SPEEDS = [{lbl:'0.5×',step:1}, {lbl:'1×',step:3}, {lbl:'2×',step:7}, {lbl:'4×',step:16}];
+let simTween = null;                                     // GSAP 播放头（timeScale 变速）
+const SIM_SPEEDS = [{lbl:'0.5×',step:1,ts:.5}, {lbl:'1×',step:3,ts:1}, {lbl:'2×',step:7,ts:2}, {lbl:'4×',step:16,ts:4}];
 const _yfix = {min:0, max:0};
 const money = v => '¥' + Math.round(v).toLocaleString('en-US');
 
 function showSim(){
   stopBoardPoll();
-  $('boardView').classList.add('hidden');
-  $('pulsebar').classList.add('hidden');
-  $('detailView').classList.add('hidden');
-  $('simView').classList.remove('hidden');
-  window.scrollTo({top:0, behavior:'instant'});
-  if (!SIM) loadSim();
+  switchView(['simView'], ['boardView','pulsebar','detailView'], () => { if (!SIM) loadSim(); });
 }
-function simStop(){ if (simTimer){ clearInterval(simTimer); simTimer=null; } setPlayBtn(false); }
+function simStop(){
+  if (simTimer){ clearInterval(simTimer); simTimer=null; }
+  if (simTween){ simTween.kill(); simTween=null; }
+  setPlayBtn(false);
+}
 
 async function loadSim(){
   simStop();
@@ -556,7 +794,12 @@ async function loadSim(){
   _yfix.min = Math.floor(lo*0.995); _yfix.max = Math.ceil(hi*1.005);
   if (!simChart) simChart = echarts.init($('sim-chart'), null, {renderer:'canvas'});
   $('simScrub').max = d.equity.length - 1;
+  lastHoldDate = null;
   simSeek(0); simPlay();   // 载入即从头播放
+  if (hasGSAP && MOTION_OK){
+    gsap.from(['#simView .sim-tiles', '#simView .sim-left', '#simView .sim-hold', '#simView .sim-logwrap'],
+      { y: 16, autoAlpha: 0, duration: .45, stagger: .08, clearProps: 'transform,opacity,visibility' });
+  }
 }
 
 function simFrame(idx){
@@ -613,16 +856,26 @@ function simFrame(idx){
 
 function countTradesTo(date){ let n=0; for (const t of SIM.trades){ if (t.date<=date) n++; else break; } return n; }
 
+let lastHoldDate = null;
 function simHoldings(date){
   let snap = null;
   for (const h of SIM.holdings){ if (h.date<=date) snap = h; else break; }
   const box = $('simHoldings');
-  if (!snap || !snap.positions.length){ box.innerHTML = '<div class="hold-empty">空仓 / 尚未建仓</div>'; return; }
+  if (!snap || !snap.positions.length){
+    if (lastHoldDate !== 'EMPTY'){ box.innerHTML = '<div class="hold-empty">空仓 / 尚未建仓</div>'; lastHoldDate = 'EMPTY'; }
+    return;
+  }
+  if (snap.date === lastHoldDate) return;          // 快照未变 → 不重绘（帧级性能）
+  lastHoldDate = snap.date;
   const maxw = Math.max(...snap.positions.map(p=>p.weight), 0.01);
   box.innerHTML = snap.positions.map(p =>
     '<div class="hold-row"><span class="hn" title="'+esc(p.name)+'">'+esc(p.name)+'</span>'+
     '<span class="hold-bar"><i style="width:'+Math.round(p.weight/maxw*100)+'%"></i></span>'+
     '<span class="hw">'+(p.weight*100).toFixed(1)+'%</span></div>').join('');
+  if (hasGSAP && MOTION_OK){
+    gsap.from(box.querySelectorAll('.hold-bar i'),
+      { scaleX: 0, transformOrigin: '0 50%', duration: .5, stagger: .05, clearProps: 'transform' });
+  }
 }
 
 function logRow(t){
@@ -641,8 +894,14 @@ function simRebuildLog(date){
 }
 function simAppendLog(date){
   const box = $('simLog');
+  let added = 0;
   while (simTradePtr < SIM.trades.length && SIM.trades[simTradePtr].date <= date){
-    box.insertAdjacentHTML('afterbegin', logRow(SIM.trades[simTradePtr])); simTradePtr++;
+    box.insertAdjacentHTML('afterbegin', logRow(SIM.trades[simTradePtr])); simTradePtr++; added++;
+  }
+  if (added && hasGSAP && MOTION_OK){
+    const rows = Array.prototype.slice.call(box.children, 0, Math.min(added, 6));
+    gsap.from(rows, { x: 16, autoAlpha: 0, duration: .3, stagger: .04,
+                      clearProps: 'transform,opacity,visibility' });
   }
 }
 
@@ -664,10 +923,22 @@ function simPlay(){
   if (!SIM) return;
   if (simIdx >= SIM.equity.length-1) simSeek(0);   // 到底了→从头
   simStop();
-  simTimer = setInterval(simTick, 55);
+  if (!hasGSAP){ simTimer = setInterval(simTick, 55); setPlayBtn(true); return; }  // 兜底
+  // GSAP 播放头驱动：ease none 线性推进，变速=timeScale，进度=tween.progress
+  const N = SIM.equity.length;
+  const ph = { i: simIdx };
+  simTween = gsap.to(ph, {
+    i: N - 1, duration: Math.max(1, (N - 1 - simIdx) * 0.05), ease: 'none',
+    onUpdate(){
+      const idx = Math.round(ph.i);
+      if (idx !== simIdx){ simFrame(idx); simAppendLog(SIM.equity[simIdx].date); }
+    },
+    onComplete: simStop
+  });
+  simTween.timeScale(SIM_SPEEDS[simSpeedIdx].ts);
   setPlayBtn(true);
 }
-function simPlayPause(){ if (simTimer) simStop(); else simPlay(); }
+function simPlayPause(){ if (simTimer || simTween) simStop(); else simPlay(); }
 
 /* ---- NEWS ---- */
 async function loadNews(sym){
@@ -687,6 +958,8 @@ function renderNewsInto(box, news){
     const meta = esc([n.source, n.ts].filter(Boolean).join(' · '));
     return '<div class="news-item">'+a+'<span class="meta">'+meta+'</span></div>';
   }).join('');
+  if (hasGSAP && MOTION_OK) gsap.from(box.querySelectorAll('.news-item'),
+    { x: -12, autoAlpha: 0, duration: .3, stagger: .05, clearProps: 'transform,opacity,visibility' });
 }
 
 /* ---- QUICK ---- */
@@ -707,6 +980,9 @@ function renderQuick(data){
     '<div class="cell"><div class="k">'+esc(c[0])+'</div><div class="v">'+esc(c[1])+'</div></div>').join('') + '</div>';
   html += '</div></section>';
   A.innerHTML = html;
+  reveal(A);
+  if (hasGSAP && MOTION_OK) gsap.from(A.querySelectorAll('.sig, .cell'),
+    { y: 8, autoAlpha: 0, duration: .3, stagger: .03, delay: .15, clearProps: 'transform,opacity,visibility' });
   if (data.disclaimer) $('footDisc').textContent = data.disclaimer;
 }
 
@@ -789,6 +1065,8 @@ function renderDeep(data){
       + '<div class="chart-note">'+esc(bt.disclaimer||'')+'</div></div></section>';
   }
   A.innerHTML = html;
+  reveal(A);
+  revealDeepExtras(A);
   if (hasBt){
     try {
       if (btChart){ btChart.dispose(); btChart = null; }
@@ -908,6 +1186,7 @@ function renderReview(data){
   }
   html += '<div class="review-note'+(over?' warn':'')+'">'+esc(r.note || '暂无复盘记录。')+'</div></div></section>';
   A.innerHTML = html;
+  reveal(A);
   if (data.disclaimer) $('footDisc').textContent = data.disclaimer;
 }
 
@@ -1032,6 +1311,7 @@ async function renderQuant(){
         + rows + '</div></div>';
   html += '</section>';
   A.innerHTML = html;
+  reveal(A, '.card');
   if ($('footDisc')) $('footDisc').textContent = '仅供学习研究，不构成投资建议。研究型，不可实盘。';
 }
 
@@ -1045,12 +1325,17 @@ function renderTeach(data){
   else { html += keys.map(k => '<div class="term"><div class="t">'+esc(k)+'</div><div class="d">'+esc(content[k])+'</div></div>').join(''); }
   html += '</div></div></section>';
   A.innerHTML = html;
+  reveal(A);
+  if (hasGSAP && MOTION_OK) gsap.from(A.querySelectorAll('.term'),
+    { y: 10, autoAlpha: 0, duration: .35, stagger: .05, delay: .1, clearProps: 'transform,opacity,visibility' });
   if (data.disclaimer) $('footDisc').textContent = data.disclaimer;
 }
 
 /* ---- STATUS modal ---- */
 async function openStatus(){
   const modal = $('statusModal'); modal.classList.add('open');
+  if (hasGSAP && MOTION_OK) gsap.from(modal.querySelector('.modal'),
+    { scale: .92, autoAlpha: 0, duration: .3, ease: 'back.out(1.6)', clearProps: 'transform,opacity,visibility' });
   const body = $('statusBody');
   body.innerHTML = '<div class="loading"><i></i><i></i><i></i> 探测中…</div>';
   const s = await getJSON('/api/status');
@@ -1077,6 +1362,7 @@ document.querySelectorAll('.tfbtn[data-tf]').forEach(btn => {
     if (TF === btn.dataset.tf) return;
     TF = btn.dataset.tf;
     document.querySelectorAll('.tfbtn[data-tf]').forEach(b => b.classList.toggle('active', b===btn));
+    moveGlider(document.querySelector('.tf-row'), btn);
     if (!$('chartSec').style.display || $('chartSec').style.display!=='none') loadCharts(curSymbol());
   });
 });
@@ -1091,6 +1377,7 @@ $('simRerun').addEventListener('click', () => { SIM=null; loadSim(); });
 $('simPlay').addEventListener('click', simPlayPause);
 $('simSpeed').addEventListener('click', () => {
   simSpeedIdx = (simSpeedIdx+1) % SIM_SPEEDS.length; $('simSpeed').textContent = SIM_SPEEDS[simSpeedIdx].lbl;
+  if (simTween) simTween.timeScale(SIM_SPEEDS[simSpeedIdx].ts);   // 播放中即时变速
 });
 $('simScrub').addEventListener('input', e => { if (SIM){ simStop(); simSeek(parseInt(e.target.value,10)); } });
 $('statusModal').addEventListener('click', e => { if (e.target.id === 'statusModal') e.currentTarget.classList.remove('open'); });
@@ -1101,12 +1388,35 @@ $('boardBody').addEventListener('click', e => {
 $('boardBody').addEventListener('keydown', e => {
   if (e.key==='Enter' || e.key===' '){ const t = e.target.closest('.ticker[data-sym]'); if (t){ e.preventDefault(); openDetail(t.dataset.sym); } }
 });
-$('refreshBtn').addEventListener('click', () => { if (!$('boardView').classList.contains('hidden')) loadBoard(); });
+$('refreshBtn').addEventListener('click', () => { loadBoard(); });
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && !$('boardView').classList.contains('hidden')) loadBoard();
+  if (document.hidden){ if (tapeTween) tapeTween.pause(); return; }
+  if (tapeTween && MOTION_OK) tapeTween.play();
+  loadBoard();
+});
+// 键盘捷径：Esc 回盯盘墙；/ 聚焦代码输入框（研判页）
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && $('boardView').classList.contains('hidden')){
+    if ($('statusModal').classList.contains('open')){ $('statusModal').classList.remove('open'); return; }
+    showBoard();
+  }
+  if (e.key === '/' && !$('detailView').classList.contains('hidden')
+      && document.activeElement !== $('symbol')){
+    e.preventDefault(); $('symbol').focus(); $('symbol').select();
+  }
+});
+// 窗口尺寸变化 → 重新定位滑块指示器
+window.addEventListener('resize', () => {
+  const mb = document.querySelector('.modebtn.active');
+  if (mb) moveGlider(document.querySelector('.modes'), mb, true);
+  const tb = document.querySelector('.tfbtn.active');
+  if (tb) moveGlider(document.querySelector('.tf-row'), tb, true);
 });
 
 /* ---------------- boot ---------------- */
+window.__zhice = { get SIM(){ return SIM; }, get motion(){ return MOTION_OK; }, gsap: hasGSAP };  // 调试/自检句柄
 tickClock();
 clockTimer = setInterval(tickClock, 1000);
-showBoard();   // 默认进入盯盘墙
+bootIntro();                                  // 开机序列（reduced-motion / 异常时立即放行）
+buildTape();                                  // 跑马灯骨架先行，行情到达后填充
+showBoard();                                  // 默认进入盯盘墙（内部启动全局轮询）

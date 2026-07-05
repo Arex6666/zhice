@@ -7,6 +7,19 @@
 <link rel="stylesheet" href="/static/css/app.css" />
 </head>
 <body>
+<!-- 氛围背景（GPU 变换驱动的缓漂光晕） -->
+<div class="bg-blob b1" aria-hidden="true"></div>
+<div class="bg-blob b2" aria-hidden="true"></div>
+
+<!-- 开机序列（GSAP 编排；CSS 兜底 2.6s 后自动消失，绝不挡页面） -->
+<div id="bootOverlay" aria-hidden="true">
+  <div class="bwrap">
+    <div class="blogo"><span class="bchar">智</span><span class="bchar alt">策</span><span class="bchar ben">ZHICE&nbsp;TERMINAL</span></div>
+    <div class="bline"></div>
+    <div class="bsub">可信 · 可解释 · 诚实 — 多智能体量化终端</div>
+  </div>
+</div>
+
 <div class="wrap">
   <!-- ===== Header ===== -->
   <header>
@@ -23,6 +36,12 @@
       </div>
     </div>
   </header>
+
+  <!-- ===== 全局行情跑马灯（GSAP 无缝循环 · 悬停暂停 · 点击进研判 · 全视图常驻） ===== -->
+  <div id="tapeWrap" aria-label="行情跑马灯">
+    <div class="tape-fade l"></div><div class="tape-fade r"></div>
+    <div id="tapeTrack" class="tape-track"></div>
+  </div>
 
   <!-- ===== Pulse bar (指数 + 涨跌家数 + 实时刷新) ===== -->
   <div class="pulsebar" id="pulsebar">
@@ -161,6 +180,7 @@
 </div>
 
 <script src="/static/vendor/echarts.min.js"></script>
+<script src="/static/vendor/gsap.min.js"></script>
 <script src="/static/js/app.js"></script>
 </body>
 </html>
